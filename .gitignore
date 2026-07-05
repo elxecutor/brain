@@ -1,0 +1,21 @@
+# Private directory - sensitive data
+private/
+
+# Plugin build artifacts
+plugin/node_modules/
+plugin/dist/
+
+# Plugin storage (auto-generated SQLite vector database)
+data/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+*.swp
+*.swo
+*~
+
+plans/
+.model-cache/
