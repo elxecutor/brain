@@ -1,11 +1,16 @@
 import { existsSync, mkdirSync } from "node:fs";
-import { dirname } from "node:path";
 import { createRequire } from "node:module";
+import { dirname } from "node:path";
+
 const req = createRequire(import.meta.url);
 
 interface Database {
   run(sql: string, ...params: unknown[]): void;
-  prepare(sql: string): { run(...params: unknown[]): void; get(...params: unknown[]): unknown; all(...params: unknown[]): unknown[] };
+  prepare(sql: string): {
+    run(...params: unknown[]): void;
+    get(...params: unknown[]): unknown;
+    all(...params: unknown[]): unknown[];
+  };
   close(): void;
   exec(sql: string): void;
 }
@@ -25,22 +30,35 @@ function initDriver(): void {
     const { DatabaseSync } = req("node:sqlite") as { DatabaseSync: new (path: string) => Database };
     class Adapter implements Database {
       private db: Database;
-      constructor(path: string) { this.db = new DatabaseSync(path); }
+      constructor(path: string) {
+        this.db = new DatabaseSync(path);
+      }
       run(sql: string, ...params: unknown[]): void {
-        if (params.length === 0) { this.db.exec(sql); return; }
+        if (params.length === 0) {
+          this.db.exec(sql);
+          return;
+        }
         if (params.length === 1 && Array.isArray(params[0])) {
           this.db.prepare(sql).run(...params[0]);
         } else {
           this.db.prepare(sql).run(...params);
         }
       }
-      prepare(sql: string) { return this.db.prepare(sql); }
-      close() { (this.db as any).close(); }
-      exec(sql: string) { this.db.exec(sql); }
+      prepare(sql: string) {
+        return this.db.prepare(sql);
+      }
+      close() {
+        (this.db as any).close();
+      }
+      exec(sql: string) {
+        this.db.exec(sql);
+      }
     }
     DatabaseSyncCompat = Adapter as unknown as new (path: string) => Database;
     return;
-  } catch { /* try better-sqlite3 */ }
+  } catch {
+    /* try better-sqlite3 */
+  }
 
   try {
     const BetterSqlite3 = req("better-sqlite3") as new (path: string) => Database;
@@ -49,7 +67,7 @@ function initDriver(): void {
   } catch {
     throw new Error(
       "brain plugin: no SQLite binding available. " +
-      "Node 22.5+ has built-in node:sqlite. Alternatively install better-sqlite3."
+        "Node 22.5+ has built-in node:sqlite. Alternatively install better-sqlite3.",
     );
   }
 }
@@ -66,6 +84,27 @@ export function openDatabase(dbPath: string): Database {
   db.exec("PRAGMA temp_store = MEMORY");
   db.exec("PRAGMA foreign_keys = ON");
   return db;
+}
+
+const connectionCache = new Map<string, Database>();
+
+export function getDatabase(dbPath: string): Database {
+  const cached = connectionCache.get(dbPath);
+  if (cached) return cached;
+  const db = openDatabase(dbPath);
+  connectionCache.set(dbPath, db);
+  return db;
+}
+
+export function clearConnectionCache(): void {
+  for (const db of connectionCache.values()) {
+    try {
+      db.close();
+    } catch {
+      /* ignore */
+    }
+  }
+  connectionCache.clear();
 }
 
 export type { Database };

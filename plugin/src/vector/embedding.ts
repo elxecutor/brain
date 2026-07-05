@@ -1,5 +1,4 @@
 import { CONFIG } from "../config.js";
-import { join } from "node:path";
 
 const CACHE_MAX = 100;
 const TIMEOUT_MS = 120000;
@@ -59,20 +58,25 @@ class EmbeddingService {
   }
 
   async embedWithTimeout(text: string): Promise<Float32Array> {
-    // Ensure model is loaded first (no timeout on warmup — model download can be slow)
     if (!this._ready) await this.warmup();
-    return Promise.race([
-      this.embed(text),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error(`Embedding timed out after ${TIMEOUT_MS}ms`)), TIMEOUT_MS)
-      ),
-    ]);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        this.embed(text),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error(`Embedding timed out after ${TIMEOUT_MS}ms`)), TIMEOUT_MS);
+        }),
+      ]);
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
   }
 
   private async apiEmbed(text: string): Promise<Float32Array> {
     const apiKey = CONFIG.embeddingApiKey;
     if (!apiKey) throw new Error("embeddingApiKey not configured for API-based embedding");
-    const response = await fetch("https://api.openai.com/v1/embeddings", {
+    const baseUrl = CONFIG.memoryApiUrl || "https://api.openai.com/v1";
+    const response = await fetch(`${baseUrl}/embeddings`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

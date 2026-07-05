@@ -1,14 +1,11 @@
-import { readFileSync, existsSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
+import { join } from "node:path";
 
 const CONFIG_DIR = join(homedir(), ".config", "opencode");
 const DATA_DIR = join(homedir(), ".brain", "data");
 
-const CONFIG_FILES = [
-  join(CONFIG_DIR, "brain.jsonc"),
-  join(CONFIG_DIR, "brain.json"),
-];
+const CONFIG_FILES = [join(CONFIG_DIR, "brain.jsonc"), join(CONFIG_DIR, "brain.json")];
 
 if (!existsSync(DATA_DIR)) {
   mkdirSync(DATA_DIR, { recursive: true });
@@ -72,6 +69,16 @@ export interface PluginConfig {
   userProfileAnalysisInterval: number;
   containerTagPrefix: string;
   showErrorToasts: boolean;
+  defaultLinkType: string;
+  maxTraversalDepth: number;
+  autoLinkEnabled: boolean;
+  autoLinkMaxConnections: number;
+  autoLinkSimilarityThreshold: number;
+  chunkMinChars: number;
+  chunkMaxChars: number;
+  chunkCoherenceThreshold: number;
+  trivialSimilarityThreshold: number;
+  trivialExemplars: string[];
   memory: MemoryConfig;
   compaction: CompactionConfig;
   chatMessage: ChatMessageConfig;
@@ -96,6 +103,16 @@ const DEFAULTS: PluginConfig = {
   userProfileAnalysisInterval: 10,
   containerTagPrefix: "opencode",
   showErrorToasts: true,
+  defaultLinkType: "related",
+  maxTraversalDepth: 3,
+  autoLinkEnabled: true,
+  autoLinkMaxConnections: 3,
+  autoLinkSimilarityThreshold: 0.5,
+  chunkMinChars: 30,
+  chunkMaxChars: 300,
+  chunkCoherenceThreshold: 0.7,
+  trivialSimilarityThreshold: 0.85,
+  trivialExemplars: [],
   memory: { defaultScope: "project" },
   compaction: { enabled: true, memoryLimit: 10 },
   chatMessage: {
@@ -123,7 +140,9 @@ function loadConfigFromPaths(paths: string[]): Partial<PluginConfig> {
       try {
         const content = readFileSync(p, "utf-8");
         return JSON.parse(stripJsoncComments(content));
-      } catch { /* skip */ }
+      } catch {
+        /* skip */
+      }
     }
   }
   return {};
@@ -163,6 +182,16 @@ function buildConfig(fileConfig: Partial<PluginConfig>): PluginConfig {
     userProfileAnalysisInterval: fileConfig.userProfileAnalysisInterval ?? DEFAULTS.userProfileAnalysisInterval,
     containerTagPrefix: fileConfig.containerTagPrefix ?? DEFAULTS.containerTagPrefix,
     showErrorToasts: fileConfig.showErrorToasts ?? DEFAULTS.showErrorToasts,
+    defaultLinkType: fileConfig.defaultLinkType ?? DEFAULTS.defaultLinkType,
+    maxTraversalDepth: fileConfig.maxTraversalDepth ?? DEFAULTS.maxTraversalDepth,
+    autoLinkEnabled: fileConfig.autoLinkEnabled ?? DEFAULTS.autoLinkEnabled,
+    autoLinkMaxConnections: fileConfig.autoLinkMaxConnections ?? DEFAULTS.autoLinkMaxConnections,
+    autoLinkSimilarityThreshold: fileConfig.autoLinkSimilarityThreshold ?? DEFAULTS.autoLinkSimilarityThreshold,
+    chunkMinChars: fileConfig.chunkMinChars ?? DEFAULTS.chunkMinChars,
+    chunkMaxChars: fileConfig.chunkMaxChars ?? DEFAULTS.chunkMaxChars,
+    chunkCoherenceThreshold: fileConfig.chunkCoherenceThreshold ?? DEFAULTS.chunkCoherenceThreshold,
+    trivialSimilarityThreshold: fileConfig.trivialSimilarityThreshold ?? DEFAULTS.trivialSimilarityThreshold,
+    trivialExemplars: fileConfig.trivialExemplars ?? DEFAULTS.trivialExemplars,
     memory: {
       defaultScope: (fileConfig.memory?.defaultScope ?? "project") as "project" | "all-projects",
     },
@@ -173,21 +202,19 @@ function buildConfig(fileConfig: Partial<PluginConfig>): PluginConfig {
     chatMessage: {
       enabled: fileConfig.chatMessage?.enabled ?? DEFAULTS.chatMessage.enabled,
       maxMemories: fileConfig.chatMessage?.maxMemories ?? DEFAULTS.chatMessage.maxMemories,
-      excludeCurrentSession: fileConfig.chatMessage?.excludeCurrentSession ?? DEFAULTS.chatMessage.excludeCurrentSession,
+      excludeCurrentSession:
+        fileConfig.chatMessage?.excludeCurrentSession ?? DEFAULTS.chatMessage.excludeCurrentSession,
       maxAgeDays: fileConfig.chatMessage?.maxAgeDays,
       injectOn: (fileConfig.chatMessage?.injectOn ?? "first") as "first" | "always",
     },
   };
 }
 
-let _globalFileConfig = loadConfigFromPaths(CONFIG_FILES);
+const _globalFileConfig = loadConfigFromPaths(CONFIG_FILES);
 export let CONFIG: PluginConfig = buildConfig(_globalFileConfig);
 
 export function initConfig(directory: string): void {
-  const projectPaths = [
-    join(directory, ".opencode", "opencode-mem.jsonc"),
-    join(directory, ".opencode", "opencode-mem.json"),
-  ];
+  const projectPaths = [join(directory, ".opencode", "brain.jsonc"), join(directory, ".opencode", "brain.json")];
   const globalConfig = loadConfigFromPaths(CONFIG_FILES);
   const projectConfig = loadConfigFromPaths(projectPaths);
   const merged = { ...globalConfig, ...projectConfig };

@@ -1,7 +1,7 @@
-import { join, basename } from "node:path";
 import { existsSync } from "node:fs";
+import { basename, join } from "node:path";
 import { CONFIG } from "../config.js";
-import { openDatabase, type Database } from "./db.js";
+import { type Database, getDatabase, openDatabase } from "./db.js";
 
 const METADATA_DB = "metadata.db";
 
@@ -19,6 +19,19 @@ export interface Shard {
 class ShardManager {
   private metaDb!: Database;
   private metaPath: string;
+  private memoryShardIndex = new Map<string, string>();
+
+  recordMemoryLocation(memoryId: string, shardDbPath: string): void {
+    this.memoryShardIndex.set(memoryId, shardDbPath);
+  }
+
+  removeMemoryLocation(memoryId: string): void {
+    this.memoryShardIndex.delete(memoryId);
+  }
+
+  findMemoryShard(memoryId: string): string | undefined {
+    return this.memoryShardIndex.get(memoryId);
+  }
 
   constructor() {
     this.metaPath = join(CONFIG.storagePath, METADATA_DB);
@@ -52,10 +65,28 @@ class ShardManager {
     return join(CONFIG.storagePath, `${scope}s`, basename(stored));
   }
 
+  private ensureSchema(db: Database): void {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS links (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source_id TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+        target_id TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+        link_type TEXT NOT NULL DEFAULT 'related',
+        metadata TEXT,
+        created_at INTEGER NOT NULL,
+        UNIQUE(source_id, target_id, link_type)
+      )
+    `);
+    db.exec("CREATE INDEX IF NOT EXISTS idx_links_source ON links(source_id)");
+    db.exec("CREATE INDEX IF NOT EXISTS idx_links_target ON links(target_id)");
+  }
+
   getActiveShard(scope: string, hash: string): Shard | null {
-    const row = this.metaDb.prepare(
-      `SELECT * FROM shards WHERE scope = ? AND scope_hash = ? AND is_active = 1 ORDER BY shard_index DESC LIMIT 1`
-    ).get(scope, hash) as Record<string, unknown> | undefined;
+    const row = this.metaDb
+      .prepare(
+        `SELECT * FROM shards WHERE scope = ? AND scope_hash = ? AND is_active = 1 ORDER BY shard_index DESC LIMIT 1`,
+      )
+      .get(scope, hash) as Record<string, unknown> | undefined;
     if (!row) return null;
     return this.rowToShard(row);
   }
@@ -63,15 +94,20 @@ class ShardManager {
   getAllShards(scope: string, hash: string): Shard[] {
     let rows: Record<string, unknown>[];
     if (hash === "") {
-      rows = this.metaDb.prepare(`SELECT * FROM shards WHERE scope = ? ORDER BY shard_index ASC`).all(scope) as Record<string, unknown>[];
+      rows = this.metaDb.prepare(`SELECT * FROM shards WHERE scope = ? ORDER BY shard_index ASC`).all(scope) as Record<
+        string,
+        unknown
+      >[];
     } else {
-      rows = this.metaDb.prepare(`SELECT * FROM shards WHERE scope = ? AND scope_hash = ? ORDER BY shard_index ASC`).all(scope, hash) as Record<string, unknown>[];
+      rows = this.metaDb
+        .prepare(`SELECT * FROM shards WHERE scope = ? AND scope_hash = ? ORDER BY shard_index ASC`)
+        .all(scope, hash) as Record<string, unknown>[];
     }
     return rows.map((r) => this.rowToShard(r));
   }
 
   getWriteShard(scope: string, hash: string): Shard {
-    let shard = this.getActiveShard(scope, hash);
+    const shard = this.getActiveShard(scope, hash);
     if (!shard) return this.createShard(scope, hash, 0);
     if (!existsSync(shard.dbPath)) {
       this.metaDb.prepare(`DELETE FROM shards WHERE id = ?`).run(shard.id);
@@ -81,6 +117,7 @@ class ShardManager {
       this.metaDb.prepare(`UPDATE shards SET is_active = 0 WHERE id = ?`).run(shard.id);
       return this.createShard(scope, hash, shard.shardIndex + 1);
     }
+    this.ensureSchema(getDatabase(shard.dbPath));
     return shard;
   }
 
@@ -88,9 +125,11 @@ class ShardManager {
     const fullPath = this.shardPath(scope, hash, idx);
     const stored = join(`${scope}s`, basename(fullPath)).replace(/\\/g, "/");
     const now = Date.now();
-    this.metaDb.prepare(
-      `INSERT INTO shards (scope, scope_hash, shard_index, db_path, vector_count, is_active, created_at) VALUES (?, ?, ?, ?, 0, 1, ?)`
-    ).run(scope, hash, idx, stored, now);
+    this.metaDb
+      .prepare(
+        `INSERT INTO shards (scope, scope_hash, shard_index, db_path, vector_count, is_active, created_at) VALUES (?, ?, ?, ?, 0, 1, ?)`,
+      )
+      .run(scope, hash, idx, stored, now);
 
     const db = openDatabase(fullPath);
     db.exec(`
@@ -120,15 +159,39 @@ class ShardManager {
         is_pinned INTEGER DEFAULT 0
       )
     `);
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS links (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source_id TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+        target_id TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+        link_type TEXT NOT NULL DEFAULT 'related',
+        metadata TEXT,
+        created_at INTEGER NOT NULL,
+        UNIQUE(source_id, target_id, link_type)
+      )
+    `);
+    db.exec("CREATE INDEX IF NOT EXISTS idx_links_source ON links(source_id)");
+    db.exec("CREATE INDEX IF NOT EXISTS idx_links_target ON links(target_id)");
     db.exec("CREATE INDEX IF NOT EXISTS idx_container_tag ON memories(container_tag)");
     db.exec("CREATE INDEX IF NOT EXISTS idx_created_at ON memories(created_at DESC)");
-    db.prepare(`INSERT OR REPLACE INTO shard_metadata (key, value) VALUES (?, ?)`).run("embedding_dimensions", String(CONFIG.embeddingDimensions));
-    db.prepare(`INSERT OR REPLACE INTO shard_metadata (key, value) VALUES (?, ?)`).run("embedding_model", CONFIG.embeddingModel);
+    db.prepare(`INSERT OR REPLACE INTO shard_metadata (key, value) VALUES (?, ?)`).run(
+      "embedding_dimensions",
+      String(CONFIG.embeddingDimensions),
+    );
+    db.prepare(`INSERT OR REPLACE INTO shard_metadata (key, value) VALUES (?, ?)`).run(
+      "embedding_model",
+      CONFIG.embeddingModel,
+    );
 
     return {
       id: Number((this.metaDb.prepare(`SELECT last_insert_rowid() as id`).get() as Record<string, unknown>).id),
-      scope, scopeHash: hash, shardIndex: idx, dbPath: fullPath,
-      vectorCount: 0, isActive: true, createdAt: now,
+      scope,
+      scopeHash: hash,
+      shardIndex: idx,
+      dbPath: fullPath,
+      vectorCount: 0,
+      isActive: true,
+      createdAt: now,
     };
   }
 
@@ -137,12 +200,16 @@ class ShardManager {
   }
 
   decrementCount(shardId: number): void {
-    this.metaDb.prepare(`UPDATE shards SET vector_count = vector_count - 1 WHERE id = ? AND vector_count > 0`).run(shardId);
+    this.metaDb
+      .prepare(`UPDATE shards SET vector_count = vector_count - 1 WHERE id = ? AND vector_count > 0`)
+      .run(shardId);
   }
 
   getShardByDbPath(dbPath: string): Shard | null {
     const fileName = basename(dbPath);
-    const row = this.metaDb.prepare(`SELECT * FROM shards WHERE db_path LIKE '%' || ?`).get(fileName) as Record<string, unknown> | undefined;
+    const row = this.metaDb.prepare(`SELECT * FROM shards WHERE db_path LIKE '%' || ?`).get(fileName) as
+      | Record<string, unknown>
+      | undefined;
     return row ? this.rowToShard(row) : null;
   }
 
