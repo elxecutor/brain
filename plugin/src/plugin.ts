@@ -1,7 +1,7 @@
 import type { PluginInput, PluginModule } from "@opencode-ai/plugin";
-import { initConfig, CONFIG } from "./config.js";
-import { embeddingService } from "./vector/embedding.js";
 import { handleChatMessage } from "./capture.js";
+import { CONFIG, initConfig } from "./config.js";
+import { embeddingService } from "./vector/embedding.js";
 import { startWebServer } from "./web/server.js";
 
 const pluginId = "brain";

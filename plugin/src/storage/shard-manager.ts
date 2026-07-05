@@ -1,8 +1,7 @@
 import { existsSync } from "node:fs";
 import { basename, join } from "node:path";
 import { CONFIG } from "../config.js";
-import { type Database, getDatabase } from "./db.js";
-import { openDatabase } from "./db.js";
+import { type Database, getDatabase, openDatabase } from "./db.js";
 
 const METADATA_DB = "metadata.db";
 

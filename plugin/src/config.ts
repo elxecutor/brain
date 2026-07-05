@@ -74,6 +74,11 @@ export interface PluginConfig {
   autoLinkEnabled: boolean;
   autoLinkMaxConnections: number;
   autoLinkSimilarityThreshold: number;
+  chunkMinChars: number;
+  chunkMaxChars: number;
+  chunkCoherenceThreshold: number;
+  trivialSimilarityThreshold: number;
+  trivialExemplars: string[];
   memory: MemoryConfig;
   compaction: CompactionConfig;
   chatMessage: ChatMessageConfig;
@@ -103,6 +108,11 @@ const DEFAULTS: PluginConfig = {
   autoLinkEnabled: true,
   autoLinkMaxConnections: 3,
   autoLinkSimilarityThreshold: 0.5,
+  chunkMinChars: 30,
+  chunkMaxChars: 300,
+  chunkCoherenceThreshold: 0.7,
+  trivialSimilarityThreshold: 0.85,
+  trivialExemplars: [],
   memory: { defaultScope: "project" },
   compaction: { enabled: true, memoryLimit: 10 },
   chatMessage: {
@@ -177,6 +187,11 @@ function buildConfig(fileConfig: Partial<PluginConfig>): PluginConfig {
     autoLinkEnabled: fileConfig.autoLinkEnabled ?? DEFAULTS.autoLinkEnabled,
     autoLinkMaxConnections: fileConfig.autoLinkMaxConnections ?? DEFAULTS.autoLinkMaxConnections,
     autoLinkSimilarityThreshold: fileConfig.autoLinkSimilarityThreshold ?? DEFAULTS.autoLinkSimilarityThreshold,
+    chunkMinChars: fileConfig.chunkMinChars ?? DEFAULTS.chunkMinChars,
+    chunkMaxChars: fileConfig.chunkMaxChars ?? DEFAULTS.chunkMaxChars,
+    chunkCoherenceThreshold: fileConfig.chunkCoherenceThreshold ?? DEFAULTS.chunkCoherenceThreshold,
+    trivialSimilarityThreshold: fileConfig.trivialSimilarityThreshold ?? DEFAULTS.trivialSimilarityThreshold,
+    trivialExemplars: fileConfig.trivialExemplars ?? DEFAULTS.trivialExemplars,
     memory: {
       defaultScope: (fileConfig.memory?.defaultScope ?? "project") as "project" | "all-projects",
     },

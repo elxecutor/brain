@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
 import { CONFIG } from "../config.js";
 import type { Database } from "../storage/db.js";
+import { getLinkedMemories } from "../storage/memories.js";
 import type { Shard } from "../storage/shard-manager.js";
-import { getLinkedMemories, getMemoryById } from "../storage/memories.js";
+import { extractKeywords } from "../text/tokenize.js";
 
 function idToKey(id: string): bigint {
   return BigInt(`0x${createHash("sha256").update(id).digest("hex").slice(0, 16)}`);
@@ -248,12 +249,7 @@ export async function searchVectors(
     .prepare(`SELECT * FROM memories WHERE id IN (${placeholders})${tagFilter}`)
     .all(...bindings) as Record<string, unknown>[];
 
-  const queryWords = queryText
-    ? queryText
-        .toLowerCase()
-        .split(/[\s,]+/)
-        .filter((w) => w.length > 1)
-    : [];
+  const queryWords = queryText ? await extractKeywords(queryText) : [];
 
   return rows
     .map((row) => {
@@ -330,14 +326,20 @@ export async function searchWithGraph(
   if (neighborIds.size > 0) {
     const ids = Array.from(neighborIds);
     const placeholders = ids.map(() => "?").join(",");
-    const rows = db.prepare(`SELECT * FROM memories WHERE id IN (${placeholders})`).all(...ids) as Record<string, unknown>[];
+    const rows = db.prepare(`SELECT * FROM memories WHERE id IN (${placeholders})`).all(...ids) as Record<
+      string,
+      unknown
+    >[];
     for (const row of rows) {
       const meta = neighborMeta.get(row.id as string)!;
       enriched.push({
         id: row.id as string,
         memory: row.content as string,
         similarity: 0,
-        tags: ((row.tags as string) || "").split(",").map((t) => t.trim()).filter(Boolean),
+        tags: ((row.tags as string) || "")
+          .split(",")
+          .map((t) => t.trim())
+          .filter(Boolean),
         metadata: row.metadata ? JSON.parse(row.metadata as string) : undefined,
         containerTag: row.container_tag as string,
         source: "link",

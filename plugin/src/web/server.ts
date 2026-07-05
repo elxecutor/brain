@@ -1,17 +1,17 @@
-import { createServer, IncomingMessage, ServerResponse } from "node:http";
 import { readFileSync } from "node:fs";
-import { join, extname, dirname } from "node:path";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CONFIG } from "../config.js";
-import { shardManager } from "../storage/shard-manager.js";
 import { getDatabase } from "../storage/db.js";
 import { getAllMemories, getMemoryById } from "../storage/memories.js";
-import { searchVectors, rebuildFromDb } from "../vector/index.js";
+import { shardManager } from "../storage/shard-manager.js";
 import { embeddingService } from "../vector/embedding.js";
+import { searchVectors } from "../vector/index.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const MIME_TYPES: Record<string, string> = {
+const _MIME_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".js": "application/javascript",
   ".css": "text/css",
@@ -31,10 +31,7 @@ export function startWebServer(): void {
       const path = url.pathname;
 
       if (path === "/api/memories" && req.method === "GET") {
-        const allShards = [
-          ...shardManager.getAllShards("user", ""),
-          ...shardManager.getAllShards("project", ""),
-        ];
+        const allShards = [...shardManager.getAllShards("user", ""), ...shardManager.getAllShards("project", "")];
         const memories: any[] = [];
         for (const shard of allShards) {
           const db = getDatabase(shard.dbPath);
@@ -52,7 +49,10 @@ export function startWebServer(): void {
         for (const shard of [...shardManager.getAllShards("user", ""), ...shardManager.getAllShards("project", "")]) {
           const db = getDatabase(shard.dbPath);
           const mem = getMemoryById(db, id);
-          if (mem) { writeJson(res, 200, mem); return; }
+          if (mem) {
+            writeJson(res, 200, mem);
+            return;
+          }
         }
         writeJson(res, 404, { error: "Memory not found" });
         return;
@@ -60,7 +60,10 @@ export function startWebServer(): void {
 
       if (path === "/api/search" && req.method === "GET") {
         const query = url.searchParams.get("q") || "";
-        if (!query) { writeJson(res, 400, { error: "query required" }); return; }
+        if (!query) {
+          writeJson(res, 400, { error: "query required" });
+          return;
+        }
 
         const queryVector = await embeddingService.embedWithTimeout(query);
         const allShards = [...shardManager.getAllShards("user", ""), ...shardManager.getAllShards("project", "")];
