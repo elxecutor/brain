@@ -17,14 +17,14 @@ function getSegmenter(locale: string, granularity: "sentence" | "word"): Intl.Se
 }
 
 export function detectLanguage(content: string): string {
-  if (content.length < 20 && CONFIG.autoCaptureLanguage) {
+  if (CONFIG.autoCaptureLanguage) {
     return CONFIG.autoCaptureLanguage;
   }
-  const francResult = franc(content);
-  if (francResult === "und") {
-    return CONFIG.autoCaptureLanguage || "eng";
+  if (content.length < 20) {
+    return "eng";
   }
-  return francResult;
+  const francResult = franc(content);
+  return francResult === "und" ? "eng" : francResult;
 }
 
 export function francToSegmenterLocale(francLang: string): string {

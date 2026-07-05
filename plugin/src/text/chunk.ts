@@ -62,10 +62,21 @@ export async function chunkContent(content: string, embed: (text: string) => Pro
       currentLen += s.length + 1;
     } else {
       const merged = currentSentences.join(" ");
-      if (merged.length >= minChunk) chunks.push(merged);
-      currentSentences = [s];
-      currentVectors = [vec];
-      currentLen = s.length;
+      if (merged.length >= minChunk) {
+        chunks.push(merged);
+        currentSentences = [s];
+        currentVectors = [vec];
+        currentLen = s.length;
+      } else if (chunks.length > 0) {
+        chunks[chunks.length - 1] = `${chunks[chunks.length - 1]} ${merged}`;
+        currentSentences = [s];
+        currentVectors = [vec];
+        currentLen = s.length;
+      } else {
+        currentSentences.push(s);
+        currentVectors.push(vec);
+        currentLen += s.length + 1;
+      }
     }
   }
 

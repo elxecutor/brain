@@ -45,31 +45,37 @@ const DEFAULT_EXEMPLARS = [
   "idk",
 ];
 
+let exemplarsSeeded = false;
+
+async function seedExemplars(exemplars: string[], embed: (text: string) => Promise<Float32Array>): Promise<void> {
+  await Promise.all(
+    exemplars.map(async (ex) => {
+      if (!EXEMPLAR_CACHE.has(ex)) {
+        EXEMPLAR_CACHE.set(ex, await embed(ex));
+      }
+    })
+  );
+  exemplarsSeeded = true;
+}
+
 export async function isTrivial(content: string, embed: (text: string) => Promise<Float32Array>): Promise<boolean> {
   const trimmed = content.trim();
   if (!trimmed) return true;
   if (trimmed.endsWith("?")) return true;
   if (trimmed.length < 15) return true;
   if (/^[.!?]+$/.test(trimmed)) return true;
-  if (/^[a-z]{1,3}$/i.test(trimmed)) return true;
 
   const exemplars = CONFIG.trivialExemplars.length > 0 ? CONFIG.trivialExemplars : DEFAULT_EXEMPLARS;
 
-  let contentVec = EXEMPLAR_CACHE.get(content);
-  if (!contentVec) {
-    contentVec = await embed(content);
-    if (EXEMPLAR_CACHE.size >= 100) EXEMPLAR_CACHE.clear();
-    EXEMPLAR_CACHE.set(content, contentVec);
+  if (!exemplarsSeeded) {
+    await seedExemplars(exemplars, embed);
   }
 
+  const contentVec = await embed(content);
   const threshold = CONFIG.trivialSimilarityThreshold;
 
   for (const ex of exemplars) {
-    let exVec = EXEMPLAR_CACHE.get(ex);
-    if (!exVec) {
-      exVec = await embed(ex);
-      EXEMPLAR_CACHE.set(ex, exVec);
-    }
+    const exVec = EXEMPLAR_CACHE.get(ex)!;
     if (cosineSimilarity(contentVec, exVec) >= threshold) {
       return true;
     }
