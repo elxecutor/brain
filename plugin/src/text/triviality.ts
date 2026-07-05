@@ -45,7 +45,7 @@ const DEFAULT_EXEMPLARS = [
   "idk",
 ];
 
-let exemplarsSeeded = false;
+let seedPromise: Promise<void> | null = null;
 
 async function seedExemplars(exemplars: string[], embed: (text: string) => Promise<Float32Array>): Promise<void> {
   await Promise.all(
@@ -55,7 +55,6 @@ async function seedExemplars(exemplars: string[], embed: (text: string) => Promi
       }
     })
   );
-  exemplarsSeeded = true;
 }
 
 export async function isTrivial(content: string, embed: (text: string) => Promise<Float32Array>): Promise<boolean> {
@@ -67,9 +66,10 @@ export async function isTrivial(content: string, embed: (text: string) => Promis
 
   const exemplars = CONFIG.trivialExemplars.length > 0 ? CONFIG.trivialExemplars : DEFAULT_EXEMPLARS;
 
-  if (!exemplarsSeeded) {
-    await seedExemplars(exemplars, embed);
+  if (!seedPromise) {
+    seedPromise = seedExemplars(exemplars, embed);
   }
+  await seedPromise;
 
   const contentVec = await embed(content);
   const threshold = CONFIG.trivialSimilarityThreshold;
