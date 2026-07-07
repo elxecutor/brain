@@ -166,7 +166,7 @@ const DEFAULTS: PluginConfig = {
     taskTimeoutMs: 30000,
   },
   synthesis: {
-    enabled: false,
+    enabled: true,
     maxSynthesizedFacts: 3,
   },
   memory: { defaultScope: "project" },

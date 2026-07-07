@@ -32,6 +32,9 @@ Key capabilities:
 - Use memory mode=traverse memoryId=... to explore the graph of linked memories from a starting point.
 - Use memory mode=list to see recent stored memories.
 
+INTELLIGENT REASONING:
+Search results may include "synthesized" facts — derived information the brain computed from your memories. For example, if a memory says "Born in 1990", the brain synthesizes "Implied age: 36 years". Use these synthesized facts to make intelligent decisions and answer questions without requiring the user to explicitly state derived information.
+
 The brain automatically captures and links chat messages as memories, building a mesh of connected knowledge over time.`;
 
   if (CONFIG.webServerEnabled) {
