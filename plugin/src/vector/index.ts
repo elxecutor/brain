@@ -5,7 +5,6 @@ import { getLinkedMemories } from "../storage/memories.js";
 import type { Shard } from "../storage/shard-manager.js";
 import { cosineSimilarity } from "../text/cosine.js";
 import { computeRetrievability } from "../text/strength.js";
-import type { SynthesizedFact } from "../text/synthesis.js";
 import { extractKeywords } from "../text/tokenize.js";
 
 function idToKey(id: string): bigint {
@@ -286,7 +285,7 @@ export interface GraphSearchResult {
   source: "search" | "link";
   linkedFrom?: string;
   linkType?: string;
-  synthesized?: Array<{ derivedFrom: string[]; fact: string }>;
+  cluster?: { id: number; memberCount: number; avgStrength: number };
 }
 
 export async function searchWithGraph(
@@ -349,25 +348,18 @@ export async function searchWithGraph(
     }
   }
 
-  if (CONFIG.synthesis.enabled && enriched.length > 0) {
-    const { synthesizeMemories } = await import("../text/synthesis.js");
-    const memInputs = enriched.map((r) => ({
-      id: r.id,
-      content: r.memory,
-      createdAt: Date.now(),
-    }));
-    const facts = await synthesizeMemories(memInputs);
-    const factsBySource = new Map<string, SynthesizedFact[]>();
-    for (const f of facts) {
-      for (const sourceId of f.derivedFrom) {
-        const list = factsBySource.get(sourceId) ?? [];
-        list.push(f);
-        factsBySource.set(sourceId, list);
-      }
-    }
+  if (enriched.length > 0) {
+    const { getClustersForMemory } = await import("../storage/memories.js");
     for (const r of enriched) {
-      const rFacts = factsBySource.get(r.id);
-      if (rFacts) r.synthesized = rFacts;
+      const clusters = getClustersForMemory(db, r.id);
+      if (clusters.length > 0) {
+        const best = clusters.reduce((a, b) => (a.avgStrength > b.avgStrength ? a : b));
+        r.cluster = {
+          id: best.id,
+          memberCount: best.memberIds.length,
+          avgStrength: best.avgStrength,
+        };
+      }
     }
   }
 

@@ -18,6 +18,8 @@ const PLUGIN_DIR = join(BRAIN_DIR, "plugin");
 const PRUNE_RETRIEVABILITY_FLOOR = 0.05;
 const MERGE_SIMILARITY_THRESHOLD = 0.95;
 const PRUNE_LINK_STRENGTH_FLOOR = 0.1;
+const CLUSTER_MIN_STRENGTH = 0.5;
+const CLUSTER_MIN_SIZE = 3;
 const GRACE_PERIOD_MS = 7 * 24 * 60 * 60 * 1000;
 const LINK_GRACE_PERIOD_MS = 24 * 60 * 60 * 1000;
 
@@ -73,6 +75,7 @@ async function main() {
   let totalPruned = 0;
   let totalMerged = 0;
   let totalLinksPruned = 0;
+  let totalClustersFound = 0;
 
   for (const shardPath of shardDbs) {
     log(`Processing: ${shardPath}`);
@@ -217,6 +220,85 @@ async function main() {
       }
     }
 
+    // 4. Detect and store clusters
+    if (tables.includes("links") && tables.includes("memories")) {
+      const linkColumns = db.prepare("PRAGMA table_info(links)").all().map(r => r.name);
+      if (linkColumns.includes("strength")) {
+        const links = db.prepare(`
+          SELECT source_id, target_id, strength FROM links WHERE link_type = 'semantic' AND strength >= ?
+        `).all(CLUSTER_MIN_STRENGTH);
+
+        const adj = new Map();
+        for (const link of links) {
+          if (!adj.has(link.source_id)) adj.set(link.source_id, new Set());
+          if (!adj.has(link.target_id)) adj.set(link.target_id, new Set());
+          adj.get(link.source_id).add(link.target_id);
+          adj.get(link.target_id).add(link.source_id);
+        }
+
+        const visited = new Set();
+        const clusters = [];
+        for (const start of adj.keys()) {
+          if (visited.has(start)) continue;
+          const component = [];
+          const queue = [start];
+          visited.add(start);
+          while (queue.length > 0) {
+            const node = queue.shift();
+            component.push(node);
+            for (const neighbor of (adj.get(node) || [])) {
+              if (!visited.has(neighbor)) {
+                visited.add(neighbor);
+                queue.push(neighbor);
+              }
+            }
+          }
+          if (component.length >= CLUSTER_MIN_SIZE) {
+            clusters.push(component.sort());
+          }
+        }
+
+        // Ensure clusters table exists
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS clusters (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            scope TEXT NOT NULL,
+            member_ids TEXT NOT NULL,
+            avg_strength REAL NOT NULL,
+            created_at INTEGER NOT NULL,
+            UNIQUE(scope, member_ids)
+          )
+        `);
+
+        for (const memberIds of clusters) {
+          const key = JSON.stringify(memberIds);
+          const existing = db.prepare("SELECT id FROM clusters WHERE scope = ? AND member_ids = ?").get("project", key);
+          if (existing) continue;
+
+          // Compute average strength for this cluster
+          let totalStrength = 0;
+          let linkCount = 0;
+          for (const link of links) {
+            if (memberIds.includes(link.source_id) && memberIds.includes(link.target_id)) {
+              totalStrength += link.strength;
+              linkCount++;
+            }
+          }
+          const avgStrength = linkCount > 0 ? totalStrength / linkCount : 0;
+
+          if (DRY_RUN) {
+            log(`  [dry-run] would store cluster with ${memberIds.length} members (avg_strength=${avgStrength.toFixed(4)})`);
+          } else {
+            db.prepare("INSERT INTO clusters (scope, member_ids, avg_strength, created_at) VALUES (?, ?, ?, ?)")
+              .run("project", key, avgStrength, now);
+          }
+          totalClustersFound++;
+        }
+      } else {
+        log(`  skipping cluster detection (strength column not present)`);
+      }
+    }
+
     db.close();
   }
 
@@ -224,6 +306,7 @@ async function main() {
   log(`Memories pruned:  ${totalPruned}`);
   log(`Memories merged:  ${totalMerged}`);
   log(`Links pruned:     ${totalLinksPruned}`);
+  log(`Clusters found:   ${totalClustersFound}`);
 }
 
 main().catch((err) => {

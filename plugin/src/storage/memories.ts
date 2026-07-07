@@ -270,3 +270,115 @@ export function traverseGraph(
   }
   return results;
 }
+
+export interface Cluster {
+  id: number;
+  scope: string;
+  memberIds: string[];
+  avgStrength: number;
+  createdAt: number;
+}
+
+export function findClusters(
+  db: Database,
+  minStrength: number = 0.5,
+  minSize: number = 3,
+): string[][] {
+  const links = db
+    .prepare(`SELECT source_id, target_id, strength FROM links WHERE link_type = 'semantic' AND strength >= ?`)
+    .all(minStrength) as Array<{ source_id: string; target_id: string; strength: number }>;
+
+  const adj = new Map<string, Set<string>>();
+  for (const link of links) {
+    if (!adj.has(link.source_id)) adj.set(link.source_id, new Set());
+    if (!adj.has(link.target_id)) adj.set(link.target_id, new Set());
+    adj.get(link.source_id)!.add(link.target_id);
+    adj.get(link.target_id)!.add(link.source_id);
+  }
+
+  const visited = new Set<string>();
+  const clusters: string[][] = [];
+
+  for (const start of adj.keys()) {
+    if (visited.has(start)) continue;
+    const component: string[] = [];
+    const queue = [start];
+    visited.add(start);
+    while (queue.length > 0) {
+      const node = queue.shift()!;
+      component.push(node);
+      for (const neighbor of adj.get(node) ?? []) {
+        if (!visited.has(neighbor)) {
+          visited.add(neighbor);
+          queue.push(neighbor);
+        }
+      }
+    }
+    if (component.length >= minSize) {
+      clusters.push(component.sort());
+    }
+  }
+
+  return clusters;
+}
+
+export function storeCluster(
+  db: Database,
+  scope: string,
+  memberIds: string[],
+  avgStrength: number,
+): Cluster | null {
+  const key = JSON.stringify(memberIds);
+  const existing = db
+    .prepare(`SELECT id FROM clusters WHERE scope = ? AND member_ids = ?`)
+    .get(scope, key) as { id: number } | undefined;
+  if (existing) return null;
+
+  const now = Date.now();
+  db.prepare(`INSERT INTO clusters (scope, member_ids, avg_strength, created_at) VALUES (?, ?, ?, ?)`).run(
+    scope,
+    key,
+    avgStrength,
+    now,
+  );
+  const row = db.prepare(`SELECT last_insert_rowid() as id`).get() as { id: number };
+  return { id: row.id, scope, memberIds, avgStrength, createdAt: now };
+}
+
+export function getClustersForMemory(db: Database, memoryId: string): Cluster[] {
+  const rows = db
+    .prepare(`SELECT * FROM clusters WHERE member_ids LIKE ?`)
+    .all(`%${memoryId}%`) as Array<{
+    id: number;
+    scope: string;
+    member_ids: string;
+    avg_strength: number;
+    created_at: number;
+  }>;
+  return rows
+    .filter((r) => JSON.parse(r.member_ids).includes(memoryId))
+    .map((r) => ({
+      id: r.id,
+      scope: r.scope,
+      memberIds: JSON.parse(r.member_ids),
+      avgStrength: r.avg_strength,
+      createdAt: r.created_at,
+    }));
+}
+
+export function getAllClusters(db: Database): Cluster[] {
+  const rows = db.prepare(`SELECT * FROM clusters`).all() as Array<{
+    id: number;
+    scope: string;
+    member_ids: string;
+    avg_strength: number;
+    created_at: number;
+  }>;
+  return rows.map((r) => ({
+    id: r.id,
+    scope: r.scope,
+    memberIds: JSON.parse(r.member_ids),
+    avgStrength: r.avg_strength,
+    createdAt: r.created_at,
+  }));
+}

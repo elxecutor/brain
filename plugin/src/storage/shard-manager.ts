@@ -107,6 +107,16 @@ class ShardManager {
     } catch {
       /* already exists */
     }
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS clusters (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        scope TEXT NOT NULL,
+        member_ids TEXT NOT NULL,
+        avg_strength REAL NOT NULL,
+        created_at INTEGER NOT NULL,
+        UNIQUE(scope, member_ids)
+      )
+    `);
   }
 
   getActiveShard(scope: string, hash: string): Shard | null {
@@ -218,6 +228,16 @@ class ShardManager {
     db.exec("CREATE INDEX IF NOT EXISTS idx_links_target ON links(target_id)");
     db.exec("CREATE INDEX IF NOT EXISTS idx_container_tag ON memories(container_tag)");
     db.exec("CREATE INDEX IF NOT EXISTS idx_created_at ON memories(created_at DESC)");
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS clusters (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        scope TEXT NOT NULL,
+        member_ids TEXT NOT NULL,
+        avg_strength REAL NOT NULL,
+        created_at INTEGER NOT NULL,
+        UNIQUE(scope, member_ids)
+      )
+    `);
     db.prepare(`INSERT OR REPLACE INTO shard_metadata (key, value) VALUES (?, ?)`).run(
       "embedding_dimensions",
       String(CONFIG.embeddingDimensions),
