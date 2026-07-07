@@ -65,6 +65,18 @@ class ShardManager {
     return join(CONFIG.storagePath, `${scope}s`, basename(stored));
   }
 
+  private readShardMetadata(db: Database): { embeddingModel?: string; embeddingDimensions?: number } {
+    const rows = db.prepare(`SELECT key, value FROM shard_metadata`).all() as { key: string; value: string }[];
+    const meta: Record<string, string> = {};
+    for (const row of rows) {
+      meta[row.key] = row.value;
+    }
+    return {
+      embeddingModel: meta.embedding_model,
+      embeddingDimensions: meta.embedding_dimensions ? Number(meta.embedding_dimensions) : undefined,
+    };
+  }
+
   private ensureSchema(db: Database): void {
     db.exec(`
       CREATE TABLE IF NOT EXISTS links (
@@ -74,11 +86,37 @@ class ShardManager {
         link_type TEXT NOT NULL DEFAULT 'related',
         metadata TEXT,
         created_at INTEGER NOT NULL,
+        strength REAL DEFAULT 0.5,
         UNIQUE(source_id, target_id, link_type)
       )
     `);
     db.exec("CREATE INDEX IF NOT EXISTS idx_links_source ON links(source_id)");
     db.exec("CREATE INDEX IF NOT EXISTS idx_links_target ON links(target_id)");
+    try {
+      db.exec("ALTER TABLE memories ADD COLUMN stability REAL DEFAULT 1.0");
+    } catch {
+      /* already exists */
+    }
+    try {
+      db.exec("ALTER TABLE memories ADD COLUMN last_accessed_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000)");
+    } catch {
+      /* already exists */
+    }
+    try {
+      db.exec("ALTER TABLE links ADD COLUMN strength REAL DEFAULT 0.5");
+    } catch {
+      /* already exists */
+    }
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS clusters (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        scope TEXT NOT NULL,
+        member_ids TEXT NOT NULL,
+        avg_strength REAL NOT NULL,
+        created_at INTEGER NOT NULL,
+        UNIQUE(scope, member_ids)
+      )
+    `);
   }
 
   getActiveShard(scope: string, hash: string): Shard | null {
@@ -118,6 +156,19 @@ class ShardManager {
       return this.createShard(scope, hash, shard.shardIndex + 1);
     }
     this.ensureSchema(getDatabase(shard.dbPath));
+    const meta = this.readShardMetadata(getDatabase(shard.dbPath));
+    if (meta.embeddingModel && meta.embeddingModel !== CONFIG.embeddingModel) {
+      throw new Error(
+        `Shard for scope=${scope} was created with model "${meta.embeddingModel}" ` +
+          `but config specifies "${CONFIG.embeddingModel}". Use a different scope or recreate the shard.`,
+      );
+    }
+    if (meta.embeddingDimensions && meta.embeddingDimensions !== CONFIG.embeddingDimensions) {
+      throw new Error(
+        `Shard for scope=${scope} has ${meta.embeddingDimensions}-dim vectors ` +
+          `but config specifies ${CONFIG.embeddingDimensions}. Use a different scope or recreate the shard.`,
+      );
+    }
     return shard;
   }
 
@@ -156,7 +207,9 @@ class ShardManager {
         project_path TEXT,
         project_name TEXT,
         git_repo_url TEXT,
-        is_pinned INTEGER DEFAULT 0
+        is_pinned INTEGER DEFAULT 0,
+        stability REAL DEFAULT 1.0,
+        last_accessed_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000)
       )
     `);
     db.exec(`
@@ -167,6 +220,7 @@ class ShardManager {
         link_type TEXT NOT NULL DEFAULT 'related',
         metadata TEXT,
         created_at INTEGER NOT NULL,
+        strength REAL DEFAULT 0.5,
         UNIQUE(source_id, target_id, link_type)
       )
     `);
@@ -174,6 +228,16 @@ class ShardManager {
     db.exec("CREATE INDEX IF NOT EXISTS idx_links_target ON links(target_id)");
     db.exec("CREATE INDEX IF NOT EXISTS idx_container_tag ON memories(container_tag)");
     db.exec("CREATE INDEX IF NOT EXISTS idx_created_at ON memories(created_at DESC)");
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS clusters (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        scope TEXT NOT NULL,
+        member_ids TEXT NOT NULL,
+        avg_strength REAL NOT NULL,
+        created_at INTEGER NOT NULL,
+        UNIQUE(scope, member_ids)
+      )
+    `);
     db.prepare(`INSERT OR REPLACE INTO shard_metadata (key, value) VALUES (?, ?)`).run(
       "embedding_dimensions",
       String(CONFIG.embeddingDimensions),

@@ -34,8 +34,33 @@ interface CompactionConfig {
   memoryLimit: number;
 }
 
-interface MemoryConfig {
-  defaultScope: "project" | "all-projects";
+interface MemoryConfig {}
+
+interface HumanMemoryModelConfig {
+  enabled: boolean;
+  initialStability: number;
+  decayExponent: number;
+  retrievabilityFactor: number;
+  growthFactor: number;
+  pruneRetrievabilityFloor: number;
+  consolidationIntervalHours: number;
+  consolidation: {
+    pruneRetrievabilityFloor: number;
+    mergeSimilarityThreshold: number;
+    pruneLinkStrengthFloor: number;
+    intervalHours: number;
+  };
+}
+
+interface BackgroundProcessingConfig {
+  enabled: boolean;
+  maxQueueSize: number;
+  taskTimeoutMs: number;
+}
+
+interface SynthesisConfig {
+  enabled: boolean;
+  maxSynthesizedFacts: number;
 }
 
 export interface PluginConfig {
@@ -46,6 +71,7 @@ export interface PluginConfig {
   maxMemories: number;
   autoCaptureEnabled: boolean;
   autoCaptureLanguage?: string;
+  defaultLanguage?: string;
   userEmailOverride?: string;
   userNameOverride?: string;
   embeddingApiKey?: string;
@@ -79,6 +105,9 @@ export interface PluginConfig {
   chunkCoherenceThreshold: number;
   trivialSimilarityThreshold: number;
   trivialExemplars: string[];
+  humanMemoryModel: HumanMemoryModelConfig;
+  backgroundProcessing: BackgroundProcessingConfig;
+  synthesis: SynthesisConfig;
   memory: MemoryConfig;
   compaction: CompactionConfig;
   chatMessage: ChatMessageConfig;
@@ -91,6 +120,7 @@ const DEFAULTS: PluginConfig = {
   similarityThreshold: 0.6,
   maxMemories: 10,
   autoCaptureEnabled: false,
+  defaultLanguage: undefined,
   vectorBackend: "usearch-first",
   webServerEnabled: false,
   webServerPort: 4747,
@@ -110,10 +140,34 @@ const DEFAULTS: PluginConfig = {
   autoLinkSimilarityThreshold: 0.5,
   chunkMinChars: 30,
   chunkMaxChars: 300,
-  chunkCoherenceThreshold: 0.7,
+  chunkCoherenceThreshold: 0.35,
   trivialSimilarityThreshold: 0.85,
   trivialExemplars: [],
-  memory: { defaultScope: "project" },
+  humanMemoryModel: {
+    enabled: false,
+    initialStability: 1.0,
+    decayExponent: -0.5,
+    retrievabilityFactor: 0.9,
+    growthFactor: 0.3,
+    pruneRetrievabilityFloor: 0.05,
+    consolidationIntervalHours: 24,
+    consolidation: {
+      pruneRetrievabilityFloor: 0.05,
+      mergeSimilarityThreshold: 0.95,
+      pruneLinkStrengthFloor: 0.1,
+      intervalHours: 24,
+    },
+  },
+  backgroundProcessing: {
+    enabled: true,
+    maxQueueSize: 50,
+    taskTimeoutMs: 30000,
+  },
+  synthesis: {
+    enabled: false,
+    maxSynthesizedFacts: 3,
+  },
+  memory: {},
   compaction: { enabled: true, memoryLimit: 10 },
   chatMessage: {
     enabled: true,
@@ -158,6 +212,7 @@ function buildConfig(fileConfig: Partial<PluginConfig>): PluginConfig {
     maxMemories: fileConfig.maxMemories ?? DEFAULTS.maxMemories,
     autoCaptureEnabled: fileConfig.autoCaptureEnabled ?? DEFAULTS.autoCaptureEnabled,
     autoCaptureLanguage: fileConfig.autoCaptureLanguage,
+    defaultLanguage: fileConfig.defaultLanguage,
     userEmailOverride: fileConfig.userEmailOverride,
     userNameOverride: fileConfig.userNameOverride,
     embeddingApiKey: fileConfig.embeddingApiKey,
@@ -192,8 +247,42 @@ function buildConfig(fileConfig: Partial<PluginConfig>): PluginConfig {
     chunkCoherenceThreshold: fileConfig.chunkCoherenceThreshold ?? DEFAULTS.chunkCoherenceThreshold,
     trivialSimilarityThreshold: fileConfig.trivialSimilarityThreshold ?? DEFAULTS.trivialSimilarityThreshold,
     trivialExemplars: fileConfig.trivialExemplars ?? DEFAULTS.trivialExemplars,
-    memory: {
-      defaultScope: (fileConfig.memory?.defaultScope ?? "project") as "project" | "all-projects",
+    humanMemoryModel: {
+      enabled: fileConfig.humanMemoryModel?.enabled ?? DEFAULTS.humanMemoryModel.enabled,
+      initialStability: fileConfig.humanMemoryModel?.initialStability ?? DEFAULTS.humanMemoryModel.initialStability,
+      decayExponent: fileConfig.humanMemoryModel?.decayExponent ?? DEFAULTS.humanMemoryModel.decayExponent,
+      retrievabilityFactor:
+        fileConfig.humanMemoryModel?.retrievabilityFactor ?? DEFAULTS.humanMemoryModel.retrievabilityFactor,
+      growthFactor: fileConfig.humanMemoryModel?.growthFactor ?? DEFAULTS.humanMemoryModel.growthFactor,
+      pruneRetrievabilityFloor:
+        fileConfig.humanMemoryModel?.pruneRetrievabilityFloor ?? DEFAULTS.humanMemoryModel.pruneRetrievabilityFloor,
+      consolidationIntervalHours:
+        fileConfig.humanMemoryModel?.consolidationIntervalHours ??
+        DEFAULTS.humanMemoryModel.consolidationIntervalHours,
+      consolidation: {
+        pruneRetrievabilityFloor:
+          fileConfig.humanMemoryModel?.consolidation?.pruneRetrievabilityFloor ??
+          DEFAULTS.humanMemoryModel.consolidation.pruneRetrievabilityFloor,
+        mergeSimilarityThreshold:
+          fileConfig.humanMemoryModel?.consolidation?.mergeSimilarityThreshold ??
+          DEFAULTS.humanMemoryModel.consolidation.mergeSimilarityThreshold,
+        pruneLinkStrengthFloor:
+          fileConfig.humanMemoryModel?.consolidation?.pruneLinkStrengthFloor ??
+          DEFAULTS.humanMemoryModel.consolidation.pruneLinkStrengthFloor,
+        intervalHours:
+          fileConfig.humanMemoryModel?.consolidation?.intervalHours ??
+          DEFAULTS.humanMemoryModel.consolidation.intervalHours,
+      },
+    },
+    memory: {},
+    backgroundProcessing: {
+      enabled: fileConfig.backgroundProcessing?.enabled ?? DEFAULTS.backgroundProcessing.enabled,
+      maxQueueSize: fileConfig.backgroundProcessing?.maxQueueSize ?? DEFAULTS.backgroundProcessing.maxQueueSize,
+      taskTimeoutMs: fileConfig.backgroundProcessing?.taskTimeoutMs ?? DEFAULTS.backgroundProcessing.taskTimeoutMs,
+    },
+    synthesis: {
+      enabled: fileConfig.synthesis?.enabled ?? DEFAULTS.synthesis.enabled,
+      maxSynthesizedFacts: fileConfig.synthesis?.maxSynthesizedFacts ?? DEFAULTS.synthesis.maxSynthesizedFacts,
     },
     compaction: {
       enabled: fileConfig.compaction?.enabled ?? DEFAULTS.compaction.enabled,

@@ -3,6 +3,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CONFIG } from "../config.js";
+import { log } from "../logger.js";
 import { getDatabase } from "../storage/db.js";
 import { getAllMemories, getMemoryById } from "../storage/memories.js";
 import { shardManager } from "../storage/shard-manager.js";
@@ -67,12 +68,13 @@ export function startWebServer(): void {
 
         const queryVector = await embeddingService.embedWithTimeout(query);
         const allShards = [...shardManager.getAllShards("user", ""), ...shardManager.getAllShards("project", "")];
-        const results: any[] = [];
-        for (const shard of allShards) {
-          const db = getDatabase(shard.dbPath);
-          const shardResults = await searchVectors(queryVector, "", shard, db, 10, query);
-          results.push(...shardResults);
-        }
+        const shardResults = await Promise.all(
+          allShards.map(async (shard) => {
+            const db = getDatabase(shard.dbPath);
+            return searchVectors(queryVector, "", shard, db, 10, query);
+          })
+        );
+        const results = shardResults.flat();
         results.sort((a, b) => b.similarity - a.similarity);
         writeJson(res, 200, { query, count: results.length, results: results.slice(0, 20) });
         return;
@@ -92,6 +94,6 @@ export function startWebServer(): void {
   });
 
   server.listen(CONFIG.webServerPort, CONFIG.webServerHost, () => {
-    process.stderr.write(`[brain] web UI at http://${CONFIG.webServerHost}:${CONFIG.webServerPort}\n`);
+    log(`web UI at http://${CONFIG.webServerHost}:${CONFIG.webServerPort}`);
   });
 }

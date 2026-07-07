@@ -22,3 +22,6 @@ plans/
 
 # Sync output
 _synced/
+
+
+*.log

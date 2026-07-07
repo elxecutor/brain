@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { clearIndexes } from "./index.js";
+import { clearIndexes } from "../plugin/dist/vector/index.js";
 
 describe("vector index", () => {
   afterEach(() => {
@@ -7,8 +7,8 @@ describe("vector index", () => {
   });
 
   it("rebuildFromDb should not throw on empty shard", async () => {
-    const { rebuildFromDb } = await import("./index.js");
-    const { openDatabase } = await import("../storage/db.js");
+    const { rebuildFromDb } = await import("../plugin/dist/vector/index.js");
+    const { openDatabase } = await import("../plugin/dist/storage/db.js");
     const { mkdtempSync, rmSync } = await import("node:fs");
     const { join } = await import("node:path");
     const { tmpdir } = await import("node:os");
@@ -32,7 +32,7 @@ describe("vector index", () => {
   });
 
   it("should export rebuildFromDb, insertVector, deleteVector, searchVectors", async () => {
-    const mod = await import("./index.js");
+    const mod = await import("../plugin/dist/vector/index.js");
     expect(typeof mod.rebuildFromDb).toBe("function");
     expect(typeof mod.insertVector).toBe("function");
     expect(typeof mod.deleteVector).toBe("function");
