@@ -286,7 +286,7 @@ export interface GraphSearchResult {
   source: "search" | "link";
   linkedFrom?: string;
   linkType?: string;
-  synthesized?: Array<{ derivedFrom: string; fact: string }>;
+  synthesized?: Array<{ derivedFrom: string[]; fact: string }>;
 }
 
 export async function searchWithGraph(
@@ -359,9 +359,11 @@ export async function searchWithGraph(
     const facts = await synthesizeMemories(memInputs);
     const factsBySource = new Map<string, SynthesizedFact[]>();
     for (const f of facts) {
-      const list = factsBySource.get(f.derivedFrom) ?? [];
-      list.push(f);
-      factsBySource.set(f.derivedFrom, list);
+      for (const sourceId of f.derivedFrom) {
+        const list = factsBySource.get(sourceId) ?? [];
+        list.push(f);
+        factsBySource.set(sourceId, list);
+      }
     }
     for (const r of enriched) {
       const rFacts = factsBySource.get(r.id);
