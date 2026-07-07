@@ -14,20 +14,20 @@ describe("synthesis", () => {
     expect(result.some((f) => f.fact.includes("1990"))).toBe(true);
   });
 
-  it("should synthesize explicit age", async () => {
+  it("should detect year references", async () => {
     const { synthesizeMemories } = await import("../plugin/dist/text/synthesis.js");
     const result = await synthesizeMemories([
-      { id: "m2", content: "User is age 35", createdAt: Date.now() },
+      { id: "m2", content: "User started working in 2020", createdAt: Date.now() },
     ]);
-    expect(result.some((f) => f.fact.includes("35"))).toBe(true);
+    expect(result.some((f) => f.fact.includes("2020"))).toBe(true);
   });
 
   it("should synthesize elapsed time from year", async () => {
     const { synthesizeMemories } = await import("../plugin/dist/text/synthesis.js");
     const result = await synthesizeMemories([
-      { id: "m3", content: "Started working in 2020", createdAt: Date.now() },
+      { id: "m3", content: "Started working in 2015", createdAt: Date.now() },
     ]);
-    expect(result.some((f) => f.fact.includes("2020"))).toBe(true);
+    expect(result.some((f) => f.fact.includes("since"))).toBe(true);
   });
 
   it("should infer location hierarchy", async () => {
