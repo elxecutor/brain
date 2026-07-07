@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { basename, join } from "node:path";
 import { CONFIG } from "../config.js";
 import { type Database, getDatabase, openDatabase } from "./db.js";
@@ -54,6 +54,41 @@ class ShardManager {
       )
     `);
     this.metaDb.exec("CREATE INDEX IF NOT EXISTS idx_shards_active ON shards(scope, scope_hash, is_active)");
+    this.discoverOrphanedShards();
+  }
+
+  private discoverOrphanedShards(): void {
+    const scopes = ["projects", "users"];
+    for (const scopeDir of scopes) {
+      const dirPath = join(CONFIG.storagePath, scopeDir);
+      if (!existsSync(dirPath)) continue;
+      const files = readdirSync(dirPath).filter((f) => f.endsWith(".db") && !f.endsWith("-shm") && !f.endsWith("-wal"));
+      for (const file of files) {
+        const match = file.match(/^(\w+)_(\w+)_shard_(\d+)\.db$/);
+        if (!match) continue;
+        const [, scope, hash, idx] = match;
+        const storedPath = `${scopeDir}/${file}`;
+        const existing = this.metaDb
+          .prepare(`SELECT id FROM shards WHERE scope = ? AND scope_hash = ? AND shard_index = ?`)
+          .get(scope, hash, Number(idx));
+        if (existing) continue;
+        const dbPath = join(CONFIG.storagePath, storedPath);
+        let vectorCount = 0;
+        try {
+          const db = getDatabase(dbPath);
+          const row = db.prepare(`SELECT COUNT(*) as cnt FROM memories`).get() as { cnt: number };
+          vectorCount = row.cnt;
+        } catch {
+          vectorCount = 0;
+        }
+        this.metaDb
+          .prepare(
+            `INSERT OR IGNORE INTO shards (scope, scope_hash, shard_index, db_path, vector_count, is_active, created_at)
+             VALUES (?, ?, ?, ?, ?, 1, ?)`,
+          )
+          .run(scope, hash, Number(idx), storedPath, vectorCount, Date.now());
+      }
+    }
   }
 
   private shardPath(scope: string, hash: string, idx: number): string {
