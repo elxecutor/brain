@@ -34,9 +34,7 @@ interface CompactionConfig {
   memoryLimit: number;
 }
 
-interface MemoryConfig {
-  defaultScope: "project" | "all-projects";
-}
+interface MemoryConfig {}
 
 interface HumanMemoryModelConfig {
   enabled: boolean;
@@ -169,7 +167,7 @@ const DEFAULTS: PluginConfig = {
     enabled: false,
     maxSynthesizedFacts: 3,
   },
-  memory: { defaultScope: "project" },
+  memory: {},
   compaction: { enabled: true, memoryLimit: 10 },
   chatMessage: {
     enabled: true,
@@ -276,9 +274,7 @@ function buildConfig(fileConfig: Partial<PluginConfig>): PluginConfig {
           DEFAULTS.humanMemoryModel.consolidation.intervalHours,
       },
     },
-    memory: {
-      defaultScope: (fileConfig.memory?.defaultScope ?? "project") as "project" | "all-projects",
-    },
+    memory: {},
     backgroundProcessing: {
       enabled: fileConfig.backgroundProcessing?.enabled ?? DEFAULTS.backgroundProcessing.enabled,
       maxQueueSize: fileConfig.backgroundProcessing?.maxQueueSize ?? DEFAULTS.backgroundProcessing.maxQueueSize,

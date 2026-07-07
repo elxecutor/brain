@@ -8,7 +8,6 @@ describe("config", () => {
     expect(CONFIG).toHaveProperty("similarityThreshold");
     expect(CONFIG).toHaveProperty("maxMemories");
     expect(CONFIG).toHaveProperty("memory");
-    expect(CONFIG.memory).toHaveProperty("defaultScope");
     expect(CONFIG).toHaveProperty("humanMemoryModel");
     expect(CONFIG.humanMemoryModel.enabled).toBe(false);
   });

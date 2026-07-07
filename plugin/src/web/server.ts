@@ -68,12 +68,13 @@ export function startWebServer(): void {
 
         const queryVector = await embeddingService.embedWithTimeout(query);
         const allShards = [...shardManager.getAllShards("user", ""), ...shardManager.getAllShards("project", "")];
-        const results: any[] = [];
-        for (const shard of allShards) {
-          const db = getDatabase(shard.dbPath);
-          const shardResults = await searchVectors(queryVector, "", shard, db, 10, query);
-          results.push(...shardResults);
-        }
+        const shardResults = await Promise.all(
+          allShards.map(async (shard) => {
+            const db = getDatabase(shard.dbPath);
+            return searchVectors(queryVector, "", shard, db, 10, query);
+          })
+        );
+        const results = shardResults.flat();
         results.sort((a, b) => b.similarity - a.similarity);
         writeJson(res, 200, { query, count: results.length, results: results.slice(0, 20) });
         return;
