@@ -3,6 +3,9 @@ import { CONFIG } from "../config.js";
 import type { Database } from "../storage/db.js";
 import { getLinkedMemories } from "../storage/memories.js";
 import type { Shard } from "../storage/shard-manager.js";
+import { cosineSimilarity } from "../text/cosine.js";
+import { computeRetrievability } from "../text/strength.js";
+import type { SynthesizedFact } from "../text/synthesis.js";
 import { extractKeywords } from "../text/tokenize.js";
 
 function idToKey(id: string): bigint {
@@ -111,18 +114,6 @@ class ExactScanIndex implements VectorIndex {
   clear(): void {
     this.vectors.clear();
   }
-}
-
-function cosineSimilarity(a: Float32Array, b: Float32Array): number {
-  let dot = 0,
-    na = 0,
-    nb = 0;
-  for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i];
-    na += a[i] * a[i];
-    nb += b[i] * b[i];
-  }
-  return na === 0 || nb === 0 ? 0 : dot / (Math.sqrt(na) * Math.sqrt(nb));
 }
 
 interface ShardIndexes {
@@ -261,7 +252,11 @@ export async function searchVectors(
         exactBoost = matches / Math.max(queryWords.length, 1);
       }
       const finalTagsSim = Math.max(scores.tagsSim, exactBoost);
-      const similarity = scores.contentSim * 0.7 + finalTagsSim * 0.3;
+      const stability = (row.stability as number) ?? CONFIG.humanMemoryModel.initialStability;
+      const lastAccessedAt = (row.last_accessed_at as number) ?? (row.created_at as number);
+      const daysElapsed = (Date.now() - lastAccessedAt) / 86400000;
+      const r = computeRetrievability(daysElapsed, stability);
+      const similarity = (scores.contentSim * 0.7 + finalTagsSim * 0.3) * r;
 
       return {
         id: row.id as string,
@@ -291,6 +286,7 @@ export interface GraphSearchResult {
   source: "search" | "link";
   linkedFrom?: string;
   linkType?: string;
+  synthesized?: Array<{ derivedFrom: string; fact: string }>;
 }
 
 export async function searchWithGraph(
@@ -309,7 +305,7 @@ export async function searchWithGraph(
   }));
 
   const neighborIds = new Set<string>();
-  const neighborMeta = new Map<string, { linkedFrom: string; linkType: string }>();
+  const neighborMeta = new Map<string, { linkedFrom: string; linkType: string; linkStrength: number }>();
 
   for (const result of direct) {
     const links = getLinkedMemories(db, result.id);
@@ -318,7 +314,11 @@ export async function searchWithGraph(
       if (directIds.has(neighbor)) continue;
       if (!neighborIds.has(neighbor)) {
         neighborIds.add(neighbor);
-        neighborMeta.set(neighbor, { linkedFrom: result.id, linkType: link.linkType });
+        neighborMeta.set(neighbor, {
+          linkedFrom: result.id,
+          linkType: link.linkType,
+          linkStrength: link.strength ?? 0.5,
+        });
       }
     }
   }
@@ -335,7 +335,7 @@ export async function searchWithGraph(
       enriched.push({
         id: row.id as string,
         memory: row.content as string,
-        similarity: 0,
+        similarity: meta.linkStrength,
         tags: ((row.tags as string) || "")
           .split(",")
           .map((t) => t.trim())
@@ -346,6 +346,26 @@ export async function searchWithGraph(
         linkedFrom: meta.linkedFrom,
         linkType: meta.linkType,
       });
+    }
+  }
+
+  if (CONFIG.synthesis.enabled && enriched.length > 0) {
+    const { synthesizeMemories } = await import("../text/synthesis.js");
+    const memInputs = enriched.map((r) => ({
+      id: r.id,
+      content: r.memory,
+      createdAt: Date.now(),
+    }));
+    const facts = await synthesizeMemories(memInputs);
+    const factsBySource = new Map<string, SynthesizedFact[]>();
+    for (const f of facts) {
+      const list = factsBySource.get(f.derivedFrom) ?? [];
+      list.push(f);
+      factsBySource.set(f.derivedFrom, list);
+    }
+    for (const r of enriched) {
+      const rFacts = factsBySource.get(r.id);
+      if (rFacts) r.synthesized = rFacts;
     }
   }
 

@@ -1,9 +1,13 @@
 import { createHash } from "node:crypto";
+import { backgroundQueue } from "./background.js";
 import { CONFIG } from "./config.js";
+import { log, logError } from "./logger.js";
 import { getDatabase } from "./storage/db.js";
-import { addLink, addMemory } from "./storage/memories.js";
+import { addLink, addMemory, updateMemoryStability } from "./storage/memories.js";
 import { shardManager } from "./storage/shard-manager.js";
 import { chunkContent } from "./text/chunk.js";
+import { computeSalience, SalienceLevel } from "./text/salience.js";
+import { computeReinforcedStability } from "./text/strength.js";
 import { isTrivial } from "./text/triviality.js";
 import { embeddingService } from "./vector/embedding.js";
 import { insertVector, searchVectors } from "./vector/index.js";
@@ -34,6 +38,7 @@ async function storeChunk(
   db: any,
   sessionId: string,
   metadata?: Record<string, unknown>,
+  initialStability?: number,
 ): Promise<string> {
   const id = `cap_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
   const now = Date.now();
@@ -45,6 +50,8 @@ async function storeChunk(
     containerTag,
     createdAt: now,
     updatedAt: now,
+    stability: initialStability ?? CONFIG.humanMemoryModel.initialStability,
+    lastAccessedAt: now,
     metadata: metadata ? JSON.stringify(metadata) : JSON.stringify({ sessionID: sessionId }),
   });
 
@@ -69,13 +76,13 @@ async function autoLinkMemory(
       if (match.id === id) continue;
       if (match.similarity < CONFIG.autoLinkSimilarityThreshold - 0.001) continue;
       if (linked >= CONFIG.autoLinkMaxConnections) break;
-      addLink(db, id, match.id, "semantic");
+      addLink(db, id, match.id, "semantic", undefined, match.similarity);
       linked++;
     }
     if (linked === 0 && similar.length > 0) {
       const best = similar.find((m) => m.id !== id);
       if (best) {
-        addLink(db, id, best.id, "semantic");
+        addLink(db, id, best.id, "semantic", undefined, CONFIG.autoLinkSimilarityThreshold);
       }
     }
   } catch {
@@ -97,6 +104,30 @@ export async function captureChatMessage(
   const { scope, hash } = extractScope(containerTag);
   const shard = shardManager.getWriteShard(scope, hash);
   const db = getDatabase(shard.dbPath);
+
+  let salienceResult = null;
+  if (CONFIG.humanMemoryModel.enabled) {
+    salienceResult = await computeSalience(
+      content,
+      (t) => embeddingService.embedWithTimeout(t),
+      async (vec, limit) => {
+        const results = await searchVectors(vec, containerTag, shard, db, limit, content);
+        return results.map((r) => ({ id: r.id, memory: r.memory, similarity: r.similarity }));
+      },
+    );
+    if (salienceResult.level === SalienceLevel.Duplicate && salienceResult.similarId) {
+      const existing = db.prepare(`SELECT * FROM memories WHERE id = ?`).get(salienceResult.similarId) as any;
+      if (existing) {
+        const oldStability = (existing.stability as number) ?? CONFIG.humanMemoryModel.initialStability;
+        const daysElapsed = (Date.now() - ((existing.last_accessed_at as number) ?? (existing.created_at as number))) / 86400000;
+        const { computeRetrievability } = await import("./text/strength.js");
+        const r = computeRetrievability(daysElapsed, oldStability);
+        const { newStability } = computeReinforcedStability(oldStability, r);
+        updateMemoryStability(db, salienceResult.similarId, newStability);
+      }
+      return salienceResult.similarId;
+    }
+  }
 
   const chunks = await chunkContent(content, (t) => embeddingService.embedWithTimeout(t));
   let firstId: string | null = null;
@@ -121,7 +152,18 @@ export async function captureChatMessage(
       }
     }
 
-    const id = await storeChunk(chunk, vector, containerTag, shard, db, sessionId, metadata);
+    const initialStability =
+      CONFIG.humanMemoryModel.initialStability + (salienceResult?.stabilityDelta ?? 0);
+    const id = await storeChunk(
+      chunk,
+      vector,
+      containerTag,
+      shard,
+      db,
+      sessionId,
+      metadata,
+      initialStability,
+    );
     if (!firstId) firstId = id;
 
     if (prevId) {
@@ -145,16 +187,24 @@ export async function handleChatMessage(
   const textContent = extractText(output.parts);
   if (!textContent) return;
 
-  try {
-    const id = await captureChatMessage(textContent, directory, input.sessionID, {
-      sessionID: input.sessionID,
-      agent: input.agent,
-      messageID: input.messageID,
-    });
-    if (id) {
-      process.stderr.write(`[brain] auto-captured: ${id}\n`);
+  const doCapture = async () => {
+    try {
+      const id = await captureChatMessage(textContent, directory, input.sessionID, {
+        sessionID: input.sessionID,
+        agent: input.agent,
+        messageID: input.messageID,
+      });
+      if (id) {
+        log(`auto-captured: ${id}`);
+      }
+    } catch (err) {
+      logError(`auto-capture: ${err}`);
     }
-  } catch (err) {
-    process.stderr.write(`[brain] auto-capture error: ${err}\n`);
+  };
+
+  if (CONFIG.backgroundProcessing.enabled) {
+    backgroundQueue.enqueue(doCapture);
+  } else {
+    await doCapture();
   }
 }

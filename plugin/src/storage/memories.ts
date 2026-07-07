@@ -20,6 +20,8 @@ export interface MemoryRecord {
   projectName?: string;
   gitRepoUrl?: string;
   isPinned?: boolean;
+  stability: number;
+  lastAccessedAt: number;
 }
 
 function toBlob(v: Float32Array | undefined): Uint8Array | null {
@@ -50,6 +52,8 @@ function rowToMemory(row: Record<string, unknown>): MemoryRecord {
     projectName: row.project_name as string | undefined,
     gitRepoUrl: row.git_repo_url as string | undefined,
     isPinned: (row.is_pinned as number) === 1,
+    stability: (row.stability as number) ?? CONFIG.humanMemoryModel.initialStability,
+    lastAccessedAt: (row.last_accessed_at as number) ?? (row.created_at as number),
   };
 }
 
@@ -63,8 +67,9 @@ export function addMemory(db: Database, shard: Shard, mem: MemoryRecord): void {
     INSERT INTO memories (
       id, content, vector, tags_vector, container_tag, tags, type,
       created_at, updated_at, metadata,
-      display_name, user_name, user_email, project_path, project_name, git_repo_url
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      display_name, user_name, user_email, project_path, project_name, git_repo_url,
+      stability, last_accessed_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     mem.id,
     mem.content,
@@ -82,6 +87,8 @@ export function addMemory(db: Database, shard: Shard, mem: MemoryRecord): void {
     mem.projectPath ?? null,
     mem.projectName ?? null,
     mem.gitRepoUrl ?? null,
+    mem.stability ?? CONFIG.humanMemoryModel.initialStability,
+    mem.lastAccessedAt ?? mem.createdAt,
   );
   shardManager.incrementCount(shard.id);
   shardManager.recordMemoryLocation(mem.id, shard.dbPath);
@@ -91,6 +98,29 @@ export function deleteMemoryById(db: Database, shardId: number, id: string, _sha
   db.prepare(`DELETE FROM memories WHERE id = ?`).run(id);
   shardManager.decrementCount(shardId);
   shardManager.removeMemoryLocation(id);
+}
+
+export function updateMemoryStability(db: Database, memoryId: string, newStability: number): void {
+  db.prepare(`UPDATE memories SET stability = ?, last_accessed_at = ? WHERE id = ?`).run(
+    newStability,
+    Date.now(),
+    memoryId,
+  );
+}
+
+export function strengthenLink(
+  db: Database,
+  sourceId: string,
+  targetId: string,
+  linkType: string,
+  delta: number,
+): void {
+  db.prepare(`UPDATE links SET strength = MIN(1.0, strength + ?) WHERE source_id = ? AND target_id = ? AND link_type = ?`).run(
+    delta,
+    sourceId,
+    targetId,
+    linkType,
+  );
 }
 
 export function listMemories(db: Database, containerTag: string, limit: number): MemoryRecord[] {
@@ -124,14 +154,23 @@ export interface Link {
   linkType: string;
   metadata?: string;
   createdAt: number;
+  strength: number;
 }
 
-export function addLink(db: Database, sourceId: string, targetId: string, linkType?: string, metadata?: string): Link {
+export function addLink(
+  db: Database,
+  sourceId: string,
+  targetId: string,
+  linkType?: string,
+  metadata?: string,
+  strength?: number,
+): Link {
   const now = Date.now();
+  const s = strength ?? 0.5;
   db.prepare(`
-    INSERT OR IGNORE INTO links (source_id, target_id, link_type, metadata, created_at)
-    VALUES (?, ?, ?, ?, ?)
-  `).run(sourceId, targetId, linkType ?? CONFIG.defaultLinkType ?? "related", metadata ?? null, now);
+    INSERT OR IGNORE INTO links (source_id, target_id, link_type, metadata, created_at, strength)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(sourceId, targetId, linkType ?? CONFIG.defaultLinkType ?? "related", metadata ?? null, now, s);
   const row = db.prepare(`SELECT last_insert_rowid() as id`).get() as any;
   return {
     id: row.id,
@@ -140,6 +179,7 @@ export function addLink(db: Database, sourceId: string, targetId: string, linkTy
     linkType: linkType ?? "related",
     metadata,
     createdAt: now,
+    strength: s,
   };
 }
 
@@ -167,12 +207,21 @@ export function removeLink(db: Database, sourceId: string, targetId: string, lin
   }
 }
 
-export function getLinkedMemories(db: Database, memoryId: string, linkType?: string): Link[] {
-  let sql = `SELECT * FROM links WHERE source_id = ? OR target_id = ?`;
+export function getLinkedMemories(
+  db: Database,
+  memoryId: string,
+  linkType?: string,
+  minStrength?: number,
+): Link[] {
+  let sql = `SELECT * FROM links WHERE (source_id = ? OR target_id = ?)`;
   const params: any[] = [memoryId, memoryId];
   if (linkType) {
     sql += ` AND link_type = ?`;
     params.push(linkType);
+  }
+  if (minStrength !== undefined) {
+    sql += ` AND strength >= ?`;
+    params.push(minStrength);
   }
   const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];
   const links: Link[] = [];
@@ -188,6 +237,7 @@ export function getLinkedMemories(db: Database, memoryId: string, linkType?: str
       linkType: r.link_type as string,
       metadata: r.metadata as string | undefined,
       createdAt: r.created_at as number,
+      strength: (r.strength as number) ?? 0.5,
     });
   }
   return links;

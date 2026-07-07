@@ -1,16 +1,31 @@
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { CONFIG } from "../config.js";
+import { log } from "../logger.js";
 
 const CACHE_MAX = 100;
 const TIMEOUT_MS = 120000;
+
+function resolveLocalModel(model: string): string {
+  const hfDir = `models--${model.replace("/", "--")}`;
+  const cacheDir = join(homedir(), ".brain", ".model-cache", hfDir, "snapshots", "main");
+  return existsSync(cacheDir) ? cacheDir : model;
+}
 
 class EmbeddingService {
   private pipe: any = null;
   private initPromise: Promise<void> | null = null;
   private cache = new Map<string, Float32Array>();
   private _ready = false;
+  private _detectedDimensions: number | null = null;
 
   get isReady(): boolean {
     return this._ready;
+  }
+
+  getDetectedDimensions(): number | null {
+    return this._detectedDimensions;
   }
 
   async warmup(): Promise<void> {
@@ -27,7 +42,17 @@ class EmbeddingService {
         return;
       }
       const { pipeline } = await import("@huggingface/transformers");
-      this.pipe = await pipeline("feature-extraction", CONFIG.embeddingModel);
+      const resolved = resolveLocalModel(CONFIG.embeddingModel);
+      this.pipe = await pipeline("feature-extraction", resolved);
+      const calibrationOutput = await this.pipe("calibration", { pooling: "mean", normalize: true });
+      const detectedDims = new Float32Array(calibrationOutput.data).length;
+      this._detectedDimensions = detectedDims;
+      if (detectedDims !== CONFIG.embeddingDimensions) {
+        log(
+          `auto-detected ${detectedDims} embedding dimensions (config said ${CONFIG.embeddingDimensions}), updating`,
+        );
+        CONFIG.embeddingDimensions = detectedDims;
+      }
       this._ready = true;
     } catch (err) {
       this.initPromise = null;

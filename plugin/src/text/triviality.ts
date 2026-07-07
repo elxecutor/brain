@@ -1,49 +1,23 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { CONFIG } from "../config.js";
+import { cosineSimilarity } from "./cosine.js";
+import { detectLanguage } from "./tokenize.js";
 
-const EXEMPLAR_CACHE = new Map<string, Float32Array>();
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
-function cosineSimilarity(a: Float32Array, b: Float32Array): number {
-  let dot = 0,
-    na = 0,
-    nb = 0;
-  for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i];
-    na += a[i] * a[i];
-    nb += b[i] * b[i];
+function loadExemplars(): Record<string, string[]> {
+  try {
+    const raw = readFileSync(join(__dirname, "exemplars/eng.json"), "utf-8");
+    return JSON.parse(raw);
+  } catch {
+    return { eng: [] };
   }
-  const denom = Math.sqrt(na) * Math.sqrt(nb);
-  return denom === 0 ? 0 : dot / denom;
 }
 
-const DEFAULT_EXEMPLARS = [
-  "ok",
-  "okay",
-  "sure",
-  "got it",
-  "i see",
-  "right",
-  "thanks",
-  "thank you",
-  "no",
-  "yes",
-  "yeah",
-  "yep",
-  "nope",
-  "great",
-  "nice",
-  "good",
-  "gotcha",
-  "understood",
-  "cool",
-  "perfect",
-  "alright",
-  "fine",
-  "done",
-  "lol",
-  "lmao",
-  "omg",
-  "idk",
-];
+const BUILTIN_EXEMPLARS = loadExemplars();
+const EXEMPLAR_CACHE = new Map<string, Float32Array>();
 
 let seedPromise: Promise<void> | null = null;
 
@@ -53,7 +27,7 @@ async function seedExemplars(exemplars: string[], embed: (text: string) => Promi
       if (!EXEMPLAR_CACHE.has(ex)) {
         EXEMPLAR_CACHE.set(ex, await embed(ex));
       }
-    })
+    }),
   );
 }
 
@@ -64,7 +38,9 @@ export async function isTrivial(content: string, embed: (text: string) => Promis
   if (trimmed.length < 15) return true;
   if (/^[.!?]+$/.test(trimmed)) return true;
 
-  const exemplars = CONFIG.trivialExemplars.length > 0 ? CONFIG.trivialExemplars : DEFAULT_EXEMPLARS;
+  const lang = detectLanguage(content);
+  const langExemplars = BUILTIN_EXEMPLARS[lang] || BUILTIN_EXEMPLARS.eng || [];
+  const exemplars = [...langExemplars, ...CONFIG.trivialExemplars];
 
   if (!seedPromise) {
     seedPromise = seedExemplars(exemplars, embed);
@@ -75,8 +51,8 @@ export async function isTrivial(content: string, embed: (text: string) => Promis
   const threshold = CONFIG.trivialSimilarityThreshold;
 
   for (const ex of exemplars) {
-    const exVec = EXEMPLAR_CACHE.get(ex)!;
-    if (cosineSimilarity(contentVec, exVec) >= threshold) {
+    const exVec = EXEMPLAR_CACHE.get(ex);
+    if (exVec && cosineSimilarity(contentVec, exVec) >= threshold) {
       return true;
     }
   }

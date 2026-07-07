@@ -1,18 +1,6 @@
 import { CONFIG } from "../config.js";
+import { cosineSimilarity } from "./cosine.js";
 import { segmentSentences } from "./tokenize.js";
-
-function cosineSimilarity(a: Float32Array, b: Float32Array): number {
-  let dot = 0,
-    na = 0,
-    nb = 0;
-  for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i];
-    na += a[i] * a[i];
-    nb += b[i] * b[i];
-  }
-  const denom = Math.sqrt(na) * Math.sqrt(nb);
-  return denom === 0 ? 0 : dot / denom;
-}
 
 function centroid(vectors: Float32Array[]): Float32Array {
   if (vectors.length === 0) return new Float32Array(0);

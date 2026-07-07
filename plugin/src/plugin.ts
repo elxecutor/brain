@@ -1,19 +1,26 @@
 import type { PluginInput, PluginModule } from "@opencode-ai/plugin";
 import { handleChatMessage } from "./capture.js";
 import { CONFIG, initConfig } from "./config.js";
+import { log } from "./logger.js";
 import { embeddingService } from "./vector/embedding.js";
 import { startWebServer } from "./web/server.js";
 
 const pluginId = "brain";
 
 async function brainPlugin(input: PluginInput): ReturnType<PluginModule["server"]> {
-  process.stderr.write(`[brain] init cwd=${input.directory}\n`);
+  log(`init cwd=${input.directory}`);
   initConfig(input.directory);
-  process.stderr.write(`[brain] storagePath=${CONFIG.storagePath}\n`);
+  log(`storagePath=${CONFIG.storagePath}`);
 
   embeddingService.warmup().catch((err) => {
-    process.stderr.write(`[brain] embedding warmup error: ${err}\n`);
+    log(`embedding warmup error: ${err}`);
   });
+
+  log(`background processing: ${CONFIG.backgroundProcessing.enabled ? "enabled" : "disabled"}`);
+
+  if (CONFIG.humanMemoryModel.enabled) {
+    log(`consolidation interval: ${CONFIG.humanMemoryModel.consolidation.intervalHours}h (manual: node scripts/consolidate.mjs)`);
+  }
 
   const memoryToolInstructions = `You have access to a memory tool called "memory" that stores and retrieves information as a semantic knowledge graph (mesh).
 

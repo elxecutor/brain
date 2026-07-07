@@ -4,6 +4,8 @@ import { CONFIG } from "../config.js";
 
 const LANGUAGE_MAP = iso6393To1 as Record<string, string>;
 
+const DEFAULT_LANGUAGE_ISO6393 = CONFIG.defaultLanguage || "eng";
+
 const SEGMENTER_CACHE = new Map<string, Intl.Segmenter>();
 
 function getSegmenter(locale: string, granularity: "sentence" | "word"): Intl.Segmenter {
@@ -21,19 +23,19 @@ export function detectLanguage(content: string): string {
     return CONFIG.autoCaptureLanguage;
   }
   if (content.length < 20) {
-    return "eng";
+    return DEFAULT_LANGUAGE_ISO6393;
   }
   const francResult = franc(content);
-  return francResult === "und" ? "eng" : francResult;
+  return francResult === "und" ? DEFAULT_LANGUAGE_ISO6393 : francResult;
 }
 
 export function francToSegmenterLocale(francLang: string): string {
-  const locale = LANGUAGE_MAP[francLang] || "en";
+  const locale = LANGUAGE_MAP[francLang] || LANGUAGE_MAP[DEFAULT_LANGUAGE_ISO6393] || "en";
   try {
     Intl.Segmenter.supportedLocalesOf([locale]);
     return locale;
   } catch {
-    return "en";
+    return LANGUAGE_MAP[DEFAULT_LANGUAGE_ISO6393] || "en";
   }
 }
 
@@ -69,5 +71,5 @@ export async function extractKeywords(content: string, lang?: string): Promise<s
   const tokens = tokenizeWords(content, detected);
   if (tokens.length === 0) return [];
   const stopwords = await getStopwordsForLang(detected);
-  return tokens.filter((t) => !stopwords.includes(t));
+  return tokens.filter((t) => !stopwords.includes(t)).filter((t) => t.length > 1);
 }
