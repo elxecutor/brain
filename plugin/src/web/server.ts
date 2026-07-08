@@ -4,11 +4,11 @@ import { dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CONFIG } from "../config.js";
 import { log } from "../logger.js";
-import { getDatabase } from "../storage/db.js";
-import { getAllMemories, getMemoryById } from "../storage/memories.js";
-import { shardManager } from "../storage/shard-manager.js";
+import { getDatabase, type Database } from "../storage/db.js";
+import { getAllMemories, getMemoryById, deleteMemoryById, type MemoryRecord } from "../storage/memories.js";
+import { shardManager, type Shard } from "../storage/shard-manager.js";
 import { embeddingService } from "../vector/embedding.js";
-import { searchVectors } from "../vector/index.js";
+import { searchVectors, deleteVector, insertVector } from "../vector/index.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -56,7 +56,7 @@ export function startWebServer(): void {
         for (const shard of allShards) {
           const db = getDatabase(shard.dbPath);
           for (const m of getAllMemories(db)) {
-            memories.push({ id: m.id, content: m.content?.substring(0, 200), tags: m.tags, createdAt: m.createdAt });
+            memories.push({ id: m.id, content: m.content, tags: m.tags, createdAt: m.createdAt });
           }
         }
         memories.sort((a, b) => b.createdAt - a.createdAt);
@@ -64,17 +64,111 @@ export function startWebServer(): void {
         return;
       }
 
-      if (path.startsWith("/api/memories/") && req.method === "GET") {
-        const id = path.slice("/api/memories/".length);
+      function findMemoryAndShard(id: string): { db: Database; shard: Shard; mem: MemoryRecord } | null {
+        const dbPath = shardManager.findMemoryShard(id);
+        if (dbPath) {
+          const shard = shardManager.getShardByDbPath(dbPath);
+          if (shard) {
+            const db = getDatabase(dbPath);
+            const mem = getMemoryById(db, id);
+            if (mem) return { db, shard, mem };
+          }
+        }
         for (const shard of [...shardManager.getAllShards("user", ""), ...shardManager.getAllShards("project", "")]) {
           const db = getDatabase(shard.dbPath);
           const mem = getMemoryById(db, id);
-          if (mem) {
-            writeJson(res, 200, mem);
-            return;
-          }
+          if (mem) return { db, shard, mem };
         }
-        writeJson(res, 404, { error: "Memory not found" });
+        return null;
+      }
+
+      if (path.startsWith("/api/memories/") && req.method === "GET") {
+        const id = path.slice("/api/memories/".length);
+        if (id.includes("/")) {
+          writeJson(res, 404, { error: "Not found" });
+          return;
+        }
+        const found = findMemoryAndShard(id);
+        if (found) {
+          writeJson(res, 200, found.mem);
+        } else {
+          writeJson(res, 404, { error: "Memory not found" });
+        }
+        return;
+      }
+
+      if (path.startsWith("/api/memories/") && req.method === "PUT") {
+        const id = path.slice("/api/memories/".length);
+        if (id.includes("/")) {
+          writeJson(res, 404, { error: "Not found" });
+          return;
+        }
+        const found = findMemoryAndShard(id);
+        if (!found) {
+          writeJson(res, 404, { error: "Memory not found" });
+          return;
+        }
+        let body = "";
+        for await (const chunk of req) body += chunk;
+        const { content } = JSON.parse(body);
+        if (!content || typeof content !== "string") {
+          writeJson(res, 400, { error: "content required" });
+          return;
+        }
+        const newVector = await embeddingService.embedWithTimeout(content);
+        const oldMem = found.mem;
+        found.db.prepare(`UPDATE memories SET content = ?, vector = ?, updated_at = ? WHERE id = ?`).run(
+          content,
+          new Uint8Array(newVector.buffer),
+          Date.now(),
+          id,
+        );
+        await deleteVector(id, found.shard);
+        await insertVector(id, newVector, oldMem.tagsVector, found.shard);
+        writeJson(res, 200, { id, content });
+        return;
+      }
+
+      if (path.startsWith("/api/memories/") && req.method === "DELETE") {
+        const id = path.slice("/api/memories/".length);
+        if (id.includes("/")) {
+          writeJson(res, 404, { error: "Not found" });
+          return;
+        }
+        const found = findMemoryAndShard(id);
+        if (!found) {
+          writeJson(res, 404, { error: "Memory not found" });
+          return;
+        }
+        found.db.prepare(`DELETE FROM links WHERE source_id = ? OR target_id = ?`).run(id, id);
+        deleteMemoryById(found.db, found.shard.id, id, found.shard.dbPath);
+        await deleteVector(id, found.shard);
+        writeJson(res, 200, { deleted: id });
+        return;
+      }
+
+      if (path === "/api/memories/delete" && req.method === "POST") {
+        let body = "";
+        for await (const chunk of req) body += chunk;
+        const { ids } = JSON.parse(body);
+        if (!Array.isArray(ids) || ids.length === 0) {
+          writeJson(res, 400, { error: "ids array required" });
+          return;
+        }
+        const deleted: string[] = [];
+        const errors: string[] = [];
+        for (const id of ids) {
+          const found = findMemoryAndShard(id);
+          if (!found) {
+            errors.push(id);
+            continue;
+          }
+          found.db.prepare(`DELETE FROM links WHERE source_id = ? OR target_id = ?`).run(id, id);
+          deleteMemoryById(found.db, found.shard.id, id, found.shard.dbPath);
+          await deleteVector(id, found.shard);
+          deleted.push(id);
+        }
+        writeJson(res, 200, { deleted, errors: errors.length > 0 ? errors : undefined });
         return;
       }
 

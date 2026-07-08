@@ -27,7 +27,7 @@ async function brainPlugin(input: PluginInput): ReturnType<PluginModule["server"
 
 Key capabilities:
 - When you learn something new or want to save context, use memory mode=add content="..." to store it.
-- Related memories are automatically linked as you capture them.
+- Related memories are automatically linked.
 - Use memory mode=search query="..." to find relevant past information.
 - Use memory mode=link sourceId=... targetId=... to manually connect related memories (types: "semantic", "related", "depends", "reference").
 - Use memory mode=traverse memoryId=... to explore the graph of linked memories from a starting point.

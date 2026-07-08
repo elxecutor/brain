@@ -3,11 +3,11 @@ import { CONFIG } from "../plugin/dist/config.js";
 
 describe("tokenize", () => {
   beforeEach(() => {
-    CONFIG.autoCaptureLanguage = undefined;
+    CONFIG.language = undefined;
   });
 
   it("detectLanguage should return configured language when set", async () => {
-    CONFIG.autoCaptureLanguage = "fra";
+    CONFIG.language = "fra";
     const { detectLanguage } = await import("../plugin/dist/text/tokenize.js");
     expect(detectLanguage("any text")).toBe("fra");
   });
