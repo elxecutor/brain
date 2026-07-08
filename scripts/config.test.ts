@@ -7,7 +7,6 @@ describe("config", () => {
     expect(CONFIG).toHaveProperty("embeddingModel");
     expect(CONFIG).toHaveProperty("similarityThreshold");
     expect(CONFIG).toHaveProperty("maxMemories");
-    expect(CONFIG).toHaveProperty("memory");
     expect(CONFIG).toHaveProperty("humanMemoryModel");
     expect(CONFIG.humanMemoryModel.enabled).toBe(false);
   });

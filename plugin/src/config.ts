@@ -34,8 +34,6 @@ interface CompactionConfig {
   memoryLimit: number;
 }
 
-interface MemoryConfig {}
-
 interface HumanMemoryModelConfig {
   enabled: boolean;
   initialStability: number;
@@ -69,7 +67,6 @@ export interface PluginConfig {
   embeddingDimensions: number;
   similarityThreshold: number;
   maxMemories: number;
-  autoCaptureEnabled: boolean;
   autoCaptureLanguage?: string;
   defaultLanguage?: string;
   userEmailOverride?: string;
@@ -100,15 +97,9 @@ export interface PluginConfig {
   autoLinkEnabled: boolean;
   autoLinkMaxConnections: number;
   autoLinkSimilarityThreshold: number;
-  chunkMinChars: number;
-  chunkMaxChars: number;
-  chunkCoherenceThreshold: number;
-  trivialSimilarityThreshold: number;
-  trivialExemplars: string[];
   humanMemoryModel: HumanMemoryModelConfig;
   backgroundProcessing: BackgroundProcessingConfig;
   synthesis: SynthesisConfig;
-  memory: MemoryConfig;
   compaction: CompactionConfig;
   chatMessage: ChatMessageConfig;
 }
@@ -119,7 +110,6 @@ const DEFAULTS: PluginConfig = {
   embeddingDimensions: 768,
   similarityThreshold: 0.6,
   maxMemories: 10,
-  autoCaptureEnabled: false,
   defaultLanguage: undefined,
   vectorBackend: "usearch-first",
   webServerEnabled: false,
@@ -138,11 +128,6 @@ const DEFAULTS: PluginConfig = {
   autoLinkEnabled: true,
   autoLinkMaxConnections: 3,
   autoLinkSimilarityThreshold: 0.5,
-  chunkMinChars: 30,
-  chunkMaxChars: 300,
-  chunkCoherenceThreshold: 0.35,
-  trivialSimilarityThreshold: 0.85,
-  trivialExemplars: [],
   humanMemoryModel: {
     enabled: false,
     initialStability: 1.0,
@@ -167,7 +152,6 @@ const DEFAULTS: PluginConfig = {
     enabled: false,
     maxSynthesizedFacts: 3,
   },
-  memory: {},
   compaction: { enabled: true, memoryLimit: 10 },
   chatMessage: {
     enabled: true,
@@ -210,7 +194,6 @@ function buildConfig(fileConfig: Partial<PluginConfig>): PluginConfig {
       fileConfig.embeddingDimensions ?? getEmbeddingDimensions(fileConfig.embeddingModel ?? DEFAULTS.embeddingModel),
     similarityThreshold: fileConfig.similarityThreshold ?? DEFAULTS.similarityThreshold,
     maxMemories: fileConfig.maxMemories ?? DEFAULTS.maxMemories,
-    autoCaptureEnabled: fileConfig.autoCaptureEnabled ?? DEFAULTS.autoCaptureEnabled,
     autoCaptureLanguage: fileConfig.autoCaptureLanguage,
     defaultLanguage: fileConfig.defaultLanguage,
     userEmailOverride: fileConfig.userEmailOverride,
@@ -242,11 +225,6 @@ function buildConfig(fileConfig: Partial<PluginConfig>): PluginConfig {
     autoLinkEnabled: fileConfig.autoLinkEnabled ?? DEFAULTS.autoLinkEnabled,
     autoLinkMaxConnections: fileConfig.autoLinkMaxConnections ?? DEFAULTS.autoLinkMaxConnections,
     autoLinkSimilarityThreshold: fileConfig.autoLinkSimilarityThreshold ?? DEFAULTS.autoLinkSimilarityThreshold,
-    chunkMinChars: fileConfig.chunkMinChars ?? DEFAULTS.chunkMinChars,
-    chunkMaxChars: fileConfig.chunkMaxChars ?? DEFAULTS.chunkMaxChars,
-    chunkCoherenceThreshold: fileConfig.chunkCoherenceThreshold ?? DEFAULTS.chunkCoherenceThreshold,
-    trivialSimilarityThreshold: fileConfig.trivialSimilarityThreshold ?? DEFAULTS.trivialSimilarityThreshold,
-    trivialExemplars: fileConfig.trivialExemplars ?? DEFAULTS.trivialExemplars,
     humanMemoryModel: {
       enabled: fileConfig.humanMemoryModel?.enabled ?? DEFAULTS.humanMemoryModel.enabled,
       initialStability: fileConfig.humanMemoryModel?.initialStability ?? DEFAULTS.humanMemoryModel.initialStability,
@@ -257,8 +235,7 @@ function buildConfig(fileConfig: Partial<PluginConfig>): PluginConfig {
       pruneRetrievabilityFloor:
         fileConfig.humanMemoryModel?.pruneRetrievabilityFloor ?? DEFAULTS.humanMemoryModel.pruneRetrievabilityFloor,
       consolidationIntervalHours:
-        fileConfig.humanMemoryModel?.consolidationIntervalHours ??
-        DEFAULTS.humanMemoryModel.consolidationIntervalHours,
+        fileConfig.humanMemoryModel?.consolidationIntervalHours ?? DEFAULTS.humanMemoryModel.consolidationIntervalHours,
       consolidation: {
         pruneRetrievabilityFloor:
           fileConfig.humanMemoryModel?.consolidation?.pruneRetrievabilityFloor ??
@@ -274,7 +251,6 @@ function buildConfig(fileConfig: Partial<PluginConfig>): PluginConfig {
           DEFAULTS.humanMemoryModel.consolidation.intervalHours,
       },
     },
-    memory: {},
     backgroundProcessing: {
       enabled: fileConfig.backgroundProcessing?.enabled ?? DEFAULTS.backgroundProcessing.enabled,
       maxQueueSize: fileConfig.backgroundProcessing?.maxQueueSize ?? DEFAULTS.backgroundProcessing.maxQueueSize,

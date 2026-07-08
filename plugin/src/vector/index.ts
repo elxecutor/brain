@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { createRequire } from "node:module";
 import { CONFIG } from "../config.js";
 import type { Database } from "../storage/db.js";
 import { getLinkedMemories } from "../storage/memories.js";
@@ -6,6 +7,9 @@ import type { Shard } from "../storage/shard-manager.js";
 import { cosineSimilarity } from "../text/cosine.js";
 import { computeRetrievability } from "../text/strength.js";
 import { extractKeywords } from "../text/tokenize.js";
+
+const require = createRequire(import.meta.url);
+const usearch = require("usearch");
 
 function idToKey(id: string): bigint {
   return BigInt(`0x${createHash("sha256").update(id).digest("hex").slice(0, 16)}`);
@@ -34,22 +38,21 @@ class USearchIndex implements VectorIndex {
     this.ndim = dims;
   }
 
-  async ensure(): Promise<void> {
+  ensure(): void {
     if (this.ready) return;
-    const usearch = await import("usearch");
     this.index = new usearch.Index(this.ndim, usearch.MetricKind.Cos, undefined, 16, 128, 64);
     this.ready = true;
   }
 
   async insert(id: string, vector: Float32Array): Promise<void> {
-    await this.ensure();
+    this.ensure();
     const key = idToKey(id);
     this.keyToStr.set(key, id);
     this.index.add(key, vector);
   }
 
   async delete(id: string): Promise<void> {
-    await this.ensure();
+    this.ensure();
     const key = idToKey(id);
     this.keyToStr.delete(key);
     try {
@@ -60,7 +63,7 @@ class USearchIndex implements VectorIndex {
   }
 
   async search(vector: Float32Array, limit: number): Promise<IndexEntry[]> {
-    await this.ensure();
+    this.ensure();
     const result = this.index.search(vector, limit);
     const keys = result.keys as bigint[];
     const distances = result.distances as Float32Array;
@@ -255,7 +258,7 @@ export async function searchVectors(
       const lastAccessedAt = (row.last_accessed_at as number) ?? (row.created_at as number);
       const daysElapsed = (Date.now() - lastAccessedAt) / 86400000;
       const r = computeRetrievability(daysElapsed, stability);
-      const similarity = (scores.contentSim * 0.7 + finalTagsSim * 0.3) * r;
+      const similarity = (scores.contentSim + finalTagsSim * 0.3) * r;
 
       return {
         id: row.id as string,

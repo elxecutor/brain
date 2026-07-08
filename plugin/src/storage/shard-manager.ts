@@ -133,7 +133,9 @@ class ShardManager {
       /* already exists */
     }
     try {
-      db.exec("ALTER TABLE memories ADD COLUMN last_accessed_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000)");
+      db.exec(
+        "ALTER TABLE memories ADD COLUMN last_accessed_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000)",
+      );
     } catch {
       /* already exists */
     }
