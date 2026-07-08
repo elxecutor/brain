@@ -19,8 +19,8 @@ function getSegmenter(locale: string, granularity: "sentence" | "word"): Intl.Se
 }
 
 export function detectLanguage(content: string): string {
-  if (CONFIG.autoCaptureLanguage) {
-    return CONFIG.autoCaptureLanguage;
+  if (CONFIG.language) {
+    return CONFIG.language;
   }
   if (content.length < 20) {
     return DEFAULT_LANGUAGE_ISO6393;

@@ -67,6 +67,8 @@ export interface PluginConfig {
   embeddingDimensions: number;
   similarityThreshold: number;
   maxMemories: number;
+  language?: string;
+  /** @deprecated Use language instead */
   autoCaptureLanguage?: string;
   defaultLanguage?: string;
   userEmailOverride?: string;
@@ -119,7 +121,7 @@ const DEFAULTS: PluginConfig = {
   autoCleanupEnabled: true,
   autoCleanupRetentionDays: 30,
   deduplicationEnabled: true,
-  deduplicationSimilarityThreshold: 0.9,
+  deduplicationSimilarityThreshold: 0.75,
   userProfileAnalysisInterval: 10,
   containerTagPrefix: "opencode",
   showErrorToasts: true,
@@ -194,7 +196,7 @@ function buildConfig(fileConfig: Partial<PluginConfig>): PluginConfig {
       fileConfig.embeddingDimensions ?? getEmbeddingDimensions(fileConfig.embeddingModel ?? DEFAULTS.embeddingModel),
     similarityThreshold: fileConfig.similarityThreshold ?? DEFAULTS.similarityThreshold,
     maxMemories: fileConfig.maxMemories ?? DEFAULTS.maxMemories,
-    autoCaptureLanguage: fileConfig.autoCaptureLanguage,
+    language: fileConfig.language ?? fileConfig.autoCaptureLanguage,
     defaultLanguage: fileConfig.defaultLanguage,
     userEmailOverride: fileConfig.userEmailOverride,
     userNameOverride: fileConfig.userNameOverride,
