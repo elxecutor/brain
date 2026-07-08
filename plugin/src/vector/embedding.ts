@@ -48,9 +48,7 @@ class EmbeddingService {
       const detectedDims = new Float32Array(calibrationOutput.data).length;
       this._detectedDimensions = detectedDims;
       if (detectedDims !== CONFIG.embeddingDimensions) {
-        log(
-          `auto-detected ${detectedDims} embedding dimensions (config said ${CONFIG.embeddingDimensions}), updating`,
-        );
+        log(`auto-detected ${detectedDims} embedding dimensions (config said ${CONFIG.embeddingDimensions}), updating`);
         CONFIG.embeddingDimensions = detectedDims;
       }
       this._ready = true;

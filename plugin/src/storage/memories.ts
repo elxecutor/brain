@@ -115,12 +115,9 @@ export function strengthenLink(
   linkType: string,
   delta: number,
 ): void {
-  db.prepare(`UPDATE links SET strength = MIN(1.0, strength + ?) WHERE source_id = ? AND target_id = ? AND link_type = ?`).run(
-    delta,
-    sourceId,
-    targetId,
-    linkType,
-  );
+  db.prepare(
+    `UPDATE links SET strength = MIN(1.0, strength + ?) WHERE source_id = ? AND target_id = ? AND link_type = ?`,
+  ).run(delta, sourceId, targetId, linkType);
 }
 
 export function listMemories(db: Database, containerTag: string, limit: number): MemoryRecord[] {
@@ -207,12 +204,7 @@ export function removeLink(db: Database, sourceId: string, targetId: string, lin
   }
 }
 
-export function getLinkedMemories(
-  db: Database,
-  memoryId: string,
-  linkType?: string,
-  minStrength?: number,
-): Link[] {
+export function getLinkedMemories(db: Database, memoryId: string, linkType?: string, minStrength?: number): Link[] {
   let sql = `SELECT * FROM links WHERE (source_id = ? OR target_id = ?)`;
   const params: any[] = [memoryId, memoryId];
   if (linkType) {
@@ -279,11 +271,7 @@ export interface Cluster {
   createdAt: number;
 }
 
-export function findClusters(
-  db: Database,
-  minStrength: number = 0.5,
-  minSize: number = 3,
-): string[][] {
+export function findClusters(db: Database, minStrength: number = 0.5, minSize: number = 3): string[][] {
   const links = db
     .prepare(`SELECT source_id, target_id, strength FROM links WHERE link_type = 'semantic' AND strength >= ?`)
     .all(minStrength) as Array<{ source_id: string; target_id: string; strength: number }>;
@@ -322,16 +310,11 @@ export function findClusters(
   return clusters;
 }
 
-export function storeCluster(
-  db: Database,
-  scope: string,
-  memberIds: string[],
-  avgStrength: number,
-): Cluster | null {
+export function storeCluster(db: Database, scope: string, memberIds: string[], avgStrength: number): Cluster | null {
   const key = JSON.stringify(memberIds);
-  const existing = db
-    .prepare(`SELECT id FROM clusters WHERE scope = ? AND member_ids = ?`)
-    .get(scope, key) as { id: number } | undefined;
+  const existing = db.prepare(`SELECT id FROM clusters WHERE scope = ? AND member_ids = ?`).get(scope, key) as
+    | { id: number }
+    | undefined;
   if (existing) return null;
 
   const now = Date.now();
@@ -346,9 +329,7 @@ export function storeCluster(
 }
 
 export function getClustersForMemory(db: Database, memoryId: string): Cluster[] {
-  const rows = db
-    .prepare(`SELECT * FROM clusters WHERE member_ids LIKE ?`)
-    .all(`%${memoryId}%`) as Array<{
+  const rows = db.prepare(`SELECT * FROM clusters WHERE member_ids LIKE ?`).all(`%${memoryId}%`) as Array<{
     id: number;
     scope: string;
     member_ids: string;

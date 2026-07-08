@@ -1,5 +1,4 @@
 import type { PluginInput, PluginModule } from "@opencode-ai/plugin";
-import { handleChatMessage } from "./capture.js";
 import { CONFIG, initConfig } from "./config.js";
 import { log } from "./logger.js";
 import { embeddingService } from "./vector/embedding.js";
@@ -19,7 +18,9 @@ async function brainPlugin(input: PluginInput): ReturnType<PluginModule["server"
   log(`background processing: ${CONFIG.backgroundProcessing.enabled ? "enabled" : "disabled"}`);
 
   if (CONFIG.humanMemoryModel.enabled) {
-    log(`consolidation interval: ${CONFIG.humanMemoryModel.consolidation.intervalHours}h (manual: node scripts/consolidate.mjs)`);
+    log(
+      `consolidation interval: ${CONFIG.humanMemoryModel.consolidation.intervalHours}h (manual: node scripts/consolidate.mjs)`,
+    );
   }
 
   const memoryToolInstructions = `You have access to a memory tool called "memory" that stores and retrieves information as a semantic knowledge graph (mesh).
@@ -32,7 +33,7 @@ Key capabilities:
 - Use memory mode=traverse memoryId=... to explore the graph of linked memories from a starting point.
 - Use memory mode=list to see recent stored memories.
 
-The brain automatically captures and links chat messages as memories, building a mesh of connected knowledge over time.`;
+The brain automatically links related memories as you build them, creating a mesh of connected knowledge over time.`;
 
   if (CONFIG.webServerEnabled) {
     startWebServer();
@@ -42,11 +43,6 @@ The brain automatically captures and links chat messages as memories, building a
     "experimental.chat.system.transform": async (_input, output) => {
       output.system.push(memoryToolInstructions);
     },
-    "chat.message": CONFIG.autoCaptureEnabled
-      ? async (msgInput, msgOutput) => {
-          await handleChatMessage(msgInput, msgOutput, input.directory);
-        }
-      : undefined,
   };
 }
 
