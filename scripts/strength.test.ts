@@ -10,7 +10,7 @@ describe("strength", () => {
   it("computeRetrievability at t=stability returns retrievabilityFactor", async () => {
     const { computeRetrievability } = await import("../plugin/dist/text/strength.js");
     const r = computeRetrievability(1.0, 1.0);
-    expect(r).toBeCloseTo(0.9, 1);
+    expect(r).toBeCloseTo(0.9, 2);
   });
 
   it("computeRetrievability after a long time approaches 0", async () => {

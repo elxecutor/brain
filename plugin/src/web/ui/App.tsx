@@ -12,6 +12,7 @@ interface MemoryItem {
   similarity?: number;
   createdAt?: number;
   containerTag?: string;
+  tier?: string;
 }
 
 interface MemoriesResponse {
@@ -260,6 +261,11 @@ function App() {
                       )}
                       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                         <span className="font-mono">{item.id}</span>
+                        {item.tier === "hippocampus" && (
+                          <Badge className="bg-cyan-100 text-cyan-800 dark:bg-cyan-900 dark:text-cyan-200 border-0">
+                            hippocampus
+                          </Badge>
+                        )}
                         {item.similarity !== undefined && (
                           <Badge variant="secondary">{(item.similarity * 100).toFixed(0)}%</Badge>
                         )}

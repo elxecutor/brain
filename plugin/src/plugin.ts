@@ -26,14 +26,22 @@ async function brainPlugin(input: PluginInput): ReturnType<PluginModule["server"
   const memoryToolInstructions = `You have access to a memory tool called "memory" that stores and retrieves information as a semantic knowledge graph (mesh).
 
 Key capabilities:
-- When you learn something new or want to save context, use memory mode=add content="..." to store it.
+- When you learn something new or want to save context, use memory mode=add content="..." to store it in neocortex (permanent).
+- For ephemeral context (short-lived, rapid encoding), use memory mode=addEphemeral content="..." to store in hippocampus (decays faster, auto-pruned).
 - Related memories are automatically linked.
 - Use memory mode=search query="..." to find relevant past information.
 - Use memory mode=link sourceId=... targetId=... to manually connect related memories (types: "semantic", "related", "depends", "reference").
 - Use memory mode=traverse memoryId=... to explore the graph of linked memories from a starting point.
 - Use memory mode=list to see recent stored memories.
 
-The brain automatically links related memories as you build them, creating a mesh of connected knowledge over time.`;
+The brain has two memory tiers: neocortex (permanent, model-driven) and hippocampus (ephemeral, fast-decaying, capacity-bounded).
+
+The brain also has a small, bounded active workspace (capacity 5) for deliberate multi-step reasoning:
+- Use memory mode=search query="..." workspace=true to add top results to the workspace.
+- Use memory mode=addToWorkspace memoryId="..." to explicitly add a specific memory.
+- Use memory mode=workspace to see what's currently active.
+- When workspace has entries, new mode=add calls preferentially link against active ones.
+- The workspace persists across calls within your session; eviction is FIFO when full.`;
 
   if (CONFIG.webServerEnabled) {
     startWebServer();

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { CONFIG } from "../config.js";
 import type { Database } from "../storage/db.js";
-import { getLinkedMemories } from "../storage/memories.js";
+import { getLinkedMemories, addLink } from "../storage/memories.js";
 import type { Shard } from "../storage/shard-manager.js";
 import { cosineSimilarity } from "../text/cosine.js";
 import { computeRetrievability } from "../text/strength.js";
@@ -194,6 +194,7 @@ export async function searchVectors(
     tags: string[];
     metadata?: any;
     containerTag: string;
+    tier: string;
   }[]
 > {
   let idx = getOrCreateIndexes(shard.id);
@@ -267,6 +268,7 @@ export async function searchVectors(
         tags: memoryTags.filter(Boolean),
         metadata: row.metadata ? JSON.parse(row.metadata as string) : undefined,
         containerTag: row.container_tag as string,
+        tier: (row.tier as string) ?? "neocortex",
       };
     })
     .filter((r) => r.similarity >= CONFIG.similarityThreshold)
@@ -285,6 +287,7 @@ export interface GraphSearchResult {
   tags: string[];
   metadata?: any;
   containerTag: string;
+  tier: string;
   source: "search" | "link";
   linkedFrom?: string;
   linkType?: string;
@@ -344,6 +347,7 @@ export async function searchWithGraph(
           .filter(Boolean),
         metadata: row.metadata ? JSON.parse(row.metadata as string) : undefined,
         containerTag: row.container_tag as string,
+        tier: (row.tier as string) ?? "neocortex",
         source: "link",
         linkedFrom: meta.linkedFrom,
         linkType: meta.linkType,
@@ -362,6 +366,27 @@ export async function searchWithGraph(
           memberCount: best.memberIds.length,
           avgStrength: best.avgStrength,
         };
+      }
+    }
+  }
+
+  if (CONFIG.hebbianLearning.enabled && enriched.length > 1) {
+    const delta = CONFIG.hebbianLearning.coActivationDelta;
+    const directResults = enriched.filter((r) => r.source === "search");
+    for (let i = 0; i < directResults.length; i++) {
+      for (let j = i + 1; j < directResults.length; j++) {
+        const a = directResults[i];
+        const b = directResults[j];
+        const existing = db
+          .prepare(
+            `SELECT id FROM links WHERE ((source_id = ? AND target_id = ?) OR (source_id = ? AND target_id = ?)) AND link_type = 'semantic'`,
+          )
+          .get(a.id, b.id, b.id, a.id) as { id: number } | undefined;
+        if (existing) {
+          db.prepare(`UPDATE links SET strength = MIN(1.0, strength + ?) WHERE id = ?`).run(delta, existing.id);
+        } else {
+          addLink(db, a.id, b.id, "semantic", undefined, delta);
+        }
       }
     }
   }

@@ -15,24 +15,13 @@ const DRY_RUN = values["dry-run"] ?? true;
 const BRAIN_DIR = join(homedir(), ".brain");
 const PLUGIN_DIR = join(BRAIN_DIR, "plugin");
 
-const PRUNE_RETRIEVABILITY_FLOOR = 0.05;
-const MERGE_SIMILARITY_THRESHOLD = 0.95;
-const PRUNE_LINK_STRENGTH_FLOOR = 0.1;
-const CLUSTER_MIN_STRENGTH = 0.5;
-const CLUSTER_MIN_SIZE = 3;
 const GRACE_PERIOD_MS = 7 * 24 * 60 * 60 * 1000;
 const LINK_GRACE_PERIOD_MS = 24 * 60 * 60 * 1000;
+const CLUSTER_MIN_STRENGTH = 0.5;
+const CLUSTER_MIN_SIZE = 3;
 
 function log(msg) {
   process.stdout.write(`[consolidate] ${msg}\n`);
-}
-
-function computeRetrievability(stability, lastAccessedAt, createdAt) {
-  if (!stability || stability <= 0) return 0;
-  const lastAccess = lastAccessedAt ?? createdAt ?? Date.now();
-  const daysSinceAccess = (Date.now() - lastAccess) / (1000 * 60 * 60 * 24);
-  const base = 1 / (1 + daysSinceAccess / (stability * 0.9));
-  return Math.max(0, Math.min(1, Math.pow(base, -0.5)));
 }
 
 function cosineSimilarity(a, b) {
@@ -49,9 +38,12 @@ function cosineSimilarity(a, b) {
 
 async function main() {
   const { CONFIG, initConfig } = await import(join(PLUGIN_DIR, "dist/config.js"));
+  const { computeRetrievability } = await import(join(PLUGIN_DIR, "dist/text/strength.js"));
   const { getDatabase } = await import(join(PLUGIN_DIR, "dist/storage/db.js"));
 
   initConfig(BRAIN_DIR);
+
+  const consolidate = CONFIG.humanMemoryModel.consolidation;
 
   const metadataPath = join(CONFIG.storagePath, "metadata.db");
   log(`Storage: ${CONFIG.storagePath}`);
@@ -128,9 +120,10 @@ async function main() {
 
         const stability = mem.stability ?? 1.0;
         const lastAccessed = mem.last_accessed_at ? new Date(mem.last_accessed_at).getTime() : createdAt;
-        const R = computeRetrievability(stability, lastAccessed, createdAt);
+        const elapsedDays = (now - lastAccessed) / (1000 * 60 * 60 * 24);
+        const R = computeRetrievability(elapsedDays, stability);
 
-        if (R < PRUNE_RETRIEVABILITY_FLOOR) {
+        if (R < consolidate.pruneRetrievabilityFloor) {
           toPrune.push({ id: mem.id, content: (mem.content ?? "").substring(0, 50), R });
         }
       }
@@ -170,7 +163,7 @@ async function main() {
             if (!vecA || !vecB) continue;
 
             const sim = cosineSimilarity(vecA, vecB);
-            if (sim >= MERGE_SIMILARITY_THRESHOLD) {
+            if (sim >= consolidate.mergeSimilarityThreshold) {
               const older = new Date(group[i].created_at).getTime() <= new Date(group[j].created_at).getTime()
                 ? group[i] : group[j];
               const younger = older === group[i] ? group[j] : group[i];
@@ -202,7 +195,7 @@ async function main() {
           SELECT id, source_id, target_id, strength, created_at
           FROM links
           WHERE strength < ? AND strength > 0
-        `).all(PRUNE_LINK_STRENGTH_FLOOR);
+        `).all(consolidate.pruneLinkStrengthFloor);
 
         for (const link of links) {
           const createdAt = link.created_at ? new Date(link.created_at).getTime() : now;
@@ -299,6 +292,114 @@ async function main() {
       }
     }
 
+    // 5. Replay hippocampal memories into neocortex
+    if (CONFIG.hippocampus.enabled) {
+      const hippMemories = db.prepare(
+        "SELECT id, content, created_at FROM memories WHERE tier = 'hippocampus'"
+      ).all();
+
+      if (hippMemories.length > 0) {
+        const hippIds = new Set(hippMemories.map(m => m.id));
+        const hippLinks = db.prepare(
+          "SELECT source_id, target_id FROM links WHERE link_type = 'semantic' AND strength >= ?"
+        ).all(CLUSTER_MIN_STRENGTH).filter(l => hippIds.has(l.source_id) && hippIds.has(l.target_id));
+
+        // Build adjacency graph from links between hippocampal memories
+        const adj = new Map();
+        for (const link of hippLinks) {
+          if (!adj.has(link.source_id)) adj.set(link.source_id, new Set());
+          if (!adj.has(link.target_id)) adj.set(link.target_id, new Set());
+          adj.get(link.source_id).add(link.target_id);
+          adj.get(link.target_id).add(link.source_id);
+        }
+
+        // BFS clustering
+        const visited = new Set();
+        const hippClusters = [];
+        for (const start of adj.keys()) {
+          if (visited.has(start)) continue;
+          const component = [];
+          const queue = [start];
+          visited.add(start);
+          while (queue.length > 0) {
+            const node = queue.shift();
+            component.push(node);
+            for (const neighbor of (adj.get(node) || [])) {
+              if (!visited.has(neighbor)) {
+                visited.add(neighbor);
+                queue.push(neighbor);
+              }
+            }
+          }
+          if (component.length >= 2) {
+            hippClusters.push(component.sort());
+          }
+        }
+
+        if (DRY_RUN) {
+          for (const cluster of hippClusters) {
+            log(`  [dry-run] would replay hippocampal cluster (${cluster.length} members)`);
+          }
+          log(`  [dry-run] would prune ${hippMemories.length} hippocampal memories`);
+        } else if (hippClusters.length > 0 && CONFIG.synthesis.enabled) {
+          const { synthesizeCluster } = await import("./synthesize.mjs");
+          for (const cluster of hippClusters) {
+            const members = cluster.map(id => hippMemories.find(m => m.id === id)).filter(Boolean);
+            const contents = members.map(m => m.content).filter(Boolean);
+            if (contents.length < 2) continue;
+
+            log(`  replaying hippocampal cluster (${contents.length} members)...`);
+            const summary = await synthesizeCluster(contents, CONFIG.synthesis);
+
+            if (summary) {
+              const { embeddingService } = await import(join(PLUGIN_DIR, "dist/vector/embedding.js"));
+              const { addMemory, addLink } = await import(join(PLUGIN_DIR, "dist/storage/memories.js"));
+              const { insertVector } = await import(join(PLUGIN_DIR, "dist/vector/index.js"));
+
+              const now = Date.now();
+              const synthId = `synth_${now}_${Math.random().toString(36).substring(2, 11)}`;
+              const vector = await embeddingService.embedWithTimeout(summary);
+
+              addMemory(db, shard, {
+                id: synthId,
+                content: summary,
+                vector,
+                containerTag: `synth_${shard.scope}_${shard.scopeHash}`,
+                tags: ["synthesis", "replayed"],
+                type: "synthesis",
+                createdAt: now,
+                updatedAt: now,
+                stability: 5.0,
+                lastAccessedAt: now,
+                tier: "neocortex",
+              });
+              await insertVector(synthId, vector, undefined, shard);
+
+              for (const memberId of cluster) {
+                addLink(db, synthId, memberId, "replayed_from", undefined, 1.0);
+              }
+
+              log(`    → replayed as ${synthId}`);
+            }
+          }
+        }
+
+        // Prune old hippocampal memories past TTL
+        if (!DRY_RUN) {
+          const ttlMs = CONFIG.hippocampus.ttlDays * 24 * 60 * 60 * 1000;
+          const cutoff = Date.now() - ttlMs;
+          const expired = db.prepare("SELECT id FROM memories WHERE tier = 'hippocampus' AND created_at < ?").all(cutoff);
+          for (const mem of expired) {
+            db.prepare("DELETE FROM links WHERE source_id = ? OR target_id = ?").run(mem.id, mem.id);
+            db.prepare("DELETE FROM memories WHERE id = ?").run(mem.id);
+          }
+          if (expired.length > 0) {
+            log(`  pruned ${expired.length} expired hippocampal memories`);
+          }
+        }
+      }
+    }
+
     db.close();
   }
 
@@ -307,6 +408,13 @@ async function main() {
   log(`Memories merged:  ${totalMerged}`);
   log(`Links pruned:     ${totalLinksPruned}`);
   log(`Clusters found:   ${totalClustersFound}`);
+
+  // Synthesis step
+  if (CONFIG.synthesis.enabled) {
+    log(`--- Synthesis ---`);
+    const { main: synthesize } = await import("./synthesize.mjs");
+    await synthesize(DRY_RUN);
+  }
 }
 
 main().catch((err) => {

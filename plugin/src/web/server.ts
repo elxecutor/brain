@@ -56,7 +56,7 @@ export function startWebServer(): void {
         for (const shard of allShards) {
           const db = getDatabase(shard.dbPath);
           for (const m of getAllMemories(db)) {
-            memories.push({ id: m.id, content: m.content, tags: m.tags, createdAt: m.createdAt });
+            memories.push({ id: m.id, content: m.content, tags: m.tags, tier: m.tier, stability: m.stability, createdAt: m.createdAt });
           }
         }
         memories.sort((a, b) => b.createdAt - a.createdAt);
@@ -169,6 +169,14 @@ export function startWebServer(): void {
           deleted.push(id);
         }
         writeJson(res, 200, { deleted, errors: errors.length > 0 ? errors : undefined });
+        return;
+      }
+
+      if (path === "/api/workspace" && req.method === "GET") {
+        const session = url.searchParams.get("session") || "default";
+        const { workspaceManager } = await import("../active/workspace.js");
+        const entries = workspaceManager.get(session);
+        writeJson(res, 200, { count: entries.length, entries });
         return;
       }
 

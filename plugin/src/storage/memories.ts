@@ -22,6 +22,7 @@ export interface MemoryRecord {
   isPinned?: boolean;
   stability: number;
   lastAccessedAt: number;
+  tier: "hippocampus" | "neocortex";
 }
 
 function toBlob(v: Float32Array | undefined): Uint8Array | null {
@@ -54,6 +55,7 @@ function rowToMemory(row: Record<string, unknown>): MemoryRecord {
     isPinned: (row.is_pinned as number) === 1,
     stability: (row.stability as number) ?? CONFIG.humanMemoryModel.initialStability,
     lastAccessedAt: (row.last_accessed_at as number) ?? (row.created_at as number),
+    tier: (row.tier as "hippocampus" | "neocortex") ?? "neocortex",
   };
 }
 
@@ -68,8 +70,8 @@ export function addMemory(db: Database, shard: Shard, mem: MemoryRecord): void {
       id, content, vector, tags_vector, container_tag, tags, type,
       created_at, updated_at, metadata,
       display_name, user_name, user_email, project_path, project_name, git_repo_url,
-      stability, last_accessed_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      stability, last_accessed_at, tier
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     mem.id,
     mem.content,
@@ -89,6 +91,7 @@ export function addMemory(db: Database, shard: Shard, mem: MemoryRecord): void {
     mem.gitRepoUrl ?? null,
     mem.stability ?? CONFIG.humanMemoryModel.initialStability,
     mem.lastAccessedAt ?? mem.createdAt,
+    mem.tier ?? "neocortex",
   );
   shardManager.incrementCount(shard.id);
   shardManager.recordMemoryLocation(mem.id, shard.dbPath);

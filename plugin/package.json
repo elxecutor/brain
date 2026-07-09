@@ -10,8 +10,7 @@
     }
   },
   "scripts": {
-    "build": "tsc",
-    "build:ui": "vite build",
+    "build": "tsc && vite build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "lint": "biome check src/",
