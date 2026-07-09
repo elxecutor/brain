@@ -140,6 +140,11 @@ class ShardManager {
       /* already exists */
     }
     try {
+      db.exec("ALTER TABLE memories ADD COLUMN tier TEXT DEFAULT 'neocortex'");
+    } catch {
+      /* already exists */
+    }
+    try {
       db.exec("ALTER TABLE links ADD COLUMN strength REAL DEFAULT 0.5");
     } catch {
       /* already exists */
@@ -246,7 +251,8 @@ class ShardManager {
         git_repo_url TEXT,
         is_pinned INTEGER DEFAULT 0,
         stability REAL DEFAULT 1.0,
-        last_accessed_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000)
+        last_accessed_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000),
+        tier TEXT DEFAULT 'neocortex'
       )
     `);
     db.exec(`

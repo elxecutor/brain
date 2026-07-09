@@ -59,6 +59,24 @@ interface BackgroundProcessingConfig {
 interface SynthesisConfig {
   enabled: boolean;
   maxSynthesizedFacts: number;
+  provider?: string;
+  model?: string;
+  apiUrl?: string;
+  apiKey?: string;
+  temperature?: number;
+  prompt?: string;
+}
+
+interface HebbianLearningConfig {
+  enabled: boolean;
+  coActivationDelta: number;
+}
+
+interface HippocampusConfig {
+  enabled: boolean;
+  capacity: number;
+  ttlDays: number;
+  initialStability: number;
 }
 
 export interface PluginConfig {
@@ -102,6 +120,8 @@ export interface PluginConfig {
   humanMemoryModel: HumanMemoryModelConfig;
   backgroundProcessing: BackgroundProcessingConfig;
   synthesis: SynthesisConfig;
+  hebbianLearning: HebbianLearningConfig;
+  hippocampus: HippocampusConfig;
   compaction: CompactionConfig;
   chatMessage: ChatMessageConfig;
 }
@@ -153,6 +173,18 @@ const DEFAULTS: PluginConfig = {
   synthesis: {
     enabled: false,
     maxSynthesizedFacts: 3,
+    temperature: 0.5,
+    prompt: "Synthesize the following related pieces of information into a concise, coherent summary. Capture the key insights and relationships.",
+  },
+  hebbianLearning: {
+    enabled: true,
+    coActivationDelta: 0.05,
+  },
+  hippocampus: {
+    enabled: false,
+    capacity: 100,
+    ttlDays: 7,
+    initialStability: 0.3,
   },
   compaction: { enabled: true, memoryLimit: 10 },
   chatMessage: {
@@ -261,6 +293,22 @@ function buildConfig(fileConfig: Partial<PluginConfig>): PluginConfig {
     synthesis: {
       enabled: fileConfig.synthesis?.enabled ?? DEFAULTS.synthesis.enabled,
       maxSynthesizedFacts: fileConfig.synthesis?.maxSynthesizedFacts ?? DEFAULTS.synthesis.maxSynthesizedFacts,
+      provider: fileConfig.synthesis?.provider ?? DEFAULTS.synthesis.provider,
+      model: fileConfig.synthesis?.model ?? DEFAULTS.synthesis.model,
+      apiUrl: fileConfig.synthesis?.apiUrl ?? DEFAULTS.synthesis.apiUrl,
+      apiKey: fileConfig.synthesis?.apiKey ?? DEFAULTS.synthesis.apiKey,
+      temperature: fileConfig.synthesis?.temperature ?? DEFAULTS.synthesis.temperature,
+      prompt: fileConfig.synthesis?.prompt ?? DEFAULTS.synthesis.prompt,
+    },
+    hebbianLearning: {
+      enabled: fileConfig.hebbianLearning?.enabled ?? DEFAULTS.hebbianLearning.enabled,
+      coActivationDelta: fileConfig.hebbianLearning?.coActivationDelta ?? DEFAULTS.hebbianLearning.coActivationDelta,
+    },
+    hippocampus: {
+      enabled: fileConfig.hippocampus?.enabled ?? DEFAULTS.hippocampus.enabled,
+      capacity: fileConfig.hippocampus?.capacity ?? DEFAULTS.hippocampus.capacity,
+      ttlDays: fileConfig.hippocampus?.ttlDays ?? DEFAULTS.hippocampus.ttlDays,
+      initialStability: fileConfig.hippocampus?.initialStability ?? DEFAULTS.hippocampus.initialStability,
     },
     compaction: {
       enabled: fileConfig.compaction?.enabled ?? DEFAULTS.compaction.enabled,
