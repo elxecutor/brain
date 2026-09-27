@@ -4,7 +4,7 @@ import { getDatabase } from "./storage/db.js";
 import { getMemoryById } from "./storage/memories.js";
 import { shardManager } from "./storage/shard-manager.js";
 import { embeddingService } from "./vector/embedding.js";
-import { searchWithGraph } from "./vector/index.js";
+import { searchVectors } from "./vector/index.js";
 
 const DAY_MS = 86400000;
 
@@ -23,7 +23,7 @@ export async function recallMemories(query: string, sessionID: string): Promise<
   const matches = await Promise.all(
     shards.map(async (shard) => {
       const db = getDatabase(shard.dbPath);
-      const results = await searchWithGraph(vector, "", shard, db, CONFIG.chatMessage.maxMemories, text);
+      const results = await searchVectors(vector, "", shard, db, CONFIG.chatMessage.maxMemories, text);
       return results.map((result) => ({ result, record: getMemoryById(db, result.id) }));
     }),
   );
