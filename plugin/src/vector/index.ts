@@ -186,6 +186,7 @@ export async function searchVectors(
   db: Database,
   limit: number,
   queryText?: string,
+  minSimilarity = CONFIG.similarityThreshold,
 ): Promise<
   {
     id: string;
@@ -271,7 +272,7 @@ export async function searchVectors(
         tier: (row.tier as string) ?? "neocortex",
       };
     })
-    .filter((r) => r.similarity >= CONFIG.similarityThreshold)
+    .filter((r) => r.similarity >= minSimilarity)
     .sort((a, b) => b.similarity - a.similarity)
     .slice(0, limit);
 }
