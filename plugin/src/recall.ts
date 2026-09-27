@@ -19,22 +19,19 @@ function belongsToSession(metadata: string | undefined, sessionID: string): bool
 
 export async function recallMemories(query: string, sessionID: string): Promise<string | undefined> {
   const shards = [...shardManager.getAllShards("user", ""), ...shardManager.getAllShards("project", "")];
+  const text = `${IDENTITY_QUERY}. User message: ${query}`;
+  const vector = await embeddingService.embedWithTimeout(text);
   const matches = await Promise.all(
-    [IDENTITY_QUERY, query].map(async (text) => {
-      const vector = await embeddingService.embedWithTimeout(text);
-      return Promise.all(
-        shards.map(async (shard) => {
-          const db = getDatabase(shard.dbPath);
-          const results = await searchWithGraph(vector, "", shard, db, CONFIG.chatMessage.maxMemories, text);
-          return results.map((result) => ({ result, record: getMemoryById(db, result.id) }));
-        }),
-      );
+    shards.map(async (shard) => {
+      const db = getDatabase(shard.dbPath);
+      const results = await searchWithGraph(vector, "", shard, db, CONFIG.chatMessage.maxMemories, text);
+      return results.map((result) => ({ result, record: getMemoryById(db, result.id) }));
     }),
   );
 
   const cutoff = CONFIG.chatMessage.maxAgeDays === undefined ? 0 : Date.now() - CONFIG.chatMessage.maxAgeDays * DAY_MS;
   const unique = new Map<string, { content: string; similarity: number }>();
-  for (const { result, record } of matches.flat(2)) {
+  for (const { result, record } of matches.flat()) {
     if (!record || record.createdAt < cutoff) continue;
     if (CONFIG.chatMessage.excludeCurrentSession && belongsToSession(record.metadata, sessionID)) continue;
     const prior = unique.get(result.id);
