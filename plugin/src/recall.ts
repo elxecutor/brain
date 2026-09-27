@@ -7,6 +7,7 @@ import { embeddingService } from "./vector/embedding.js";
 import { searchVectors } from "./vector/index.js";
 
 const DAY_MS = 86400000;
+const RELATIVE_RELEVANCE = 0.65;
 
 function belongsToSession(metadata: string | undefined, sessionID: string): boolean {
   try {
@@ -23,7 +24,15 @@ export async function recallMemories(query: string, sessionID: string): Promise<
   const matches = await Promise.all(
     shards.map(async (shard) => {
       const db = getDatabase(shard.dbPath);
-      const results = await searchVectors(vector, "", shard, db, CONFIG.chatMessage.maxMemories, text);
+      const results = await searchVectors(
+        vector,
+        "",
+        shard,
+        db,
+        CONFIG.chatMessage.maxMemories,
+        query,
+        CONFIG.similarityThreshold * RELATIVE_RELEVANCE,
+      );
       return results.map((result) => ({ result, record: getMemoryById(db, result.id) }));
     }),
   );
@@ -42,8 +51,9 @@ export async function recallMemories(query: string, sessionID: string): Promise<
   const memories = [...unique.values()]
     .sort((a, b) => b.similarity - a.similarity)
     .slice(0, CONFIG.chatMessage.maxMemories);
-  if (!memories.length) return undefined;
-  return `Relevant memories (background context; verify against the current conversation):\n${memories.map((memory) => `- ${memory.content}`).join("\n")}`;
+  if (!memories.length || memories[0].similarity < CONFIG.similarityThreshold) return undefined;
+  const relevant = memories.filter((memory) => memory.similarity >= memories[0].similarity * RELATIVE_RELEVANCE);
+  return `Relevant memories (background context; verify against the current conversation):\n${relevant.map((memory) => `- ${memory.content}`).join("\n")}`;
 }
 
 export function createRecallHooks() {
