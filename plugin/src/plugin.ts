@@ -1,6 +1,7 @@
 import type { PluginInput, PluginModule } from "@opencode-ai/plugin";
 import { CONFIG, initConfig } from "./config.js";
 import { log } from "./logger.js";
+import { createRecallHooks } from "./recall.js";
 import { embeddingService } from "./vector/embedding.js";
 import { startWebServer } from "./web/server.js";
 
@@ -43,13 +44,25 @@ The brain also has a small, bounded active workspace (capacity 5) for deliberate
 - When workspace has entries, new mode=add calls preferentially link against active ones.
 - The workspace persists across calls within your session; eviction is FIFO when full.`;
 
+  const recall = createRecallHooks();
+
   if (CONFIG.webServerEnabled) {
     startWebServer();
   }
 
   return {
-    "experimental.chat.system.transform": async (_input, output) => {
+    "chat.message": async (input, output) => {
+      const query = output.parts
+        .filter((part) => part.type === "text" && !part.synthetic)
+        .map((part) => (part.type === "text" ? part.text : ""))
+        .join(" ")
+        .trim();
+      await recall.onMessage(input.sessionID, query);
+    },
+    "experimental.chat.system.transform": async (input, output) => {
       output.system.push(memoryToolInstructions);
+      const context = recall.context(input.sessionID);
+      if (context) output.system.push(context);
     },
   };
 }
