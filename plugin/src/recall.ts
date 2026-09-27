@@ -8,6 +8,11 @@ import { searchWithGraph } from "./vector/index.js";
 
 const IDENTITY_QUERY = "assistant name identity user preferences";
 const DAY_MS = 86400000;
+const ASSISTANT_IDENTITY = /\b(who are you|your name|what (?:do|should) i call you|who am i talking to)\b/i;
+
+export function recallQuery(message: string): string {
+  return ASSISTANT_IDENTITY.test(message) ? `${IDENTITY_QUERY}. User message: ${message}` : message;
+}
 
 function belongsToSession(metadata: string | undefined, sessionID: string): boolean {
   try {
@@ -19,7 +24,7 @@ function belongsToSession(metadata: string | undefined, sessionID: string): bool
 
 export async function recallMemories(query: string, sessionID: string): Promise<string | undefined> {
   const shards = [...shardManager.getAllShards("user", ""), ...shardManager.getAllShards("project", "")];
-  const text = `${IDENTITY_QUERY}. User message: ${query}`;
+  const text = recallQuery(query);
   const vector = await embeddingService.embedWithTimeout(text);
   const matches = await Promise.all(
     shards.map(async (shard) => {
@@ -54,7 +59,10 @@ export function createRecallHooks() {
   return {
     async onMessage(sessionID: string, query: string): Promise<void> {
       if (!CONFIG.chatMessage.enabled || !query.trim()) return;
-      if (CONFIG.chatMessage.injectOn === "first" && seen.has(sessionID)) return;
+      if (CONFIG.chatMessage.injectOn === "first" && seen.has(sessionID)) {
+        recalled.delete(sessionID);
+        return;
+      }
       seen.add(sessionID);
       try {
         const context = await recallMemories(query, sessionID);
