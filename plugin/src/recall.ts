@@ -6,13 +6,7 @@ import { shardManager } from "./storage/shard-manager.js";
 import { embeddingService } from "./vector/embedding.js";
 import { searchWithGraph } from "./vector/index.js";
 
-const IDENTITY_QUERY = "assistant name identity user preferences";
 const DAY_MS = 86400000;
-const ASSISTANT_IDENTITY = /\b(who are you|your name|what (?:do|should) i call you|who am i talking to)\b/i;
-
-export function recallQuery(message: string): string {
-  return ASSISTANT_IDENTITY.test(message) ? `${IDENTITY_QUERY}. User message: ${message}` : message;
-}
 
 function belongsToSession(metadata: string | undefined, sessionID: string): boolean {
   try {
@@ -24,7 +18,7 @@ function belongsToSession(metadata: string | undefined, sessionID: string): bool
 
 export async function recallMemories(query: string, sessionID: string): Promise<string | undefined> {
   const shards = [...shardManager.getAllShards("user", ""), ...shardManager.getAllShards("project", "")];
-  const text = recallQuery(query);
+  const text = `Relevant memory for answering user: ${query}`;
   const vector = await embeddingService.embedWithTimeout(text);
   const matches = await Promise.all(
     shards.map(async (shard) => {
